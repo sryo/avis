@@ -11,7 +11,7 @@ git clone https://github.com/sryo/avis
 ln -s "$(pwd)/avis/skills/avis" ~/.claude/skills/avis
 ```
 
-Restart Claude Code. `/avis` should show up.
+`/avis` should appear in your slash-command list. Restart Claude Code if it doesn't.
 
 ## Use it
 
