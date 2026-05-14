@@ -51,7 +51,6 @@ After injection, the toolbar exposes:
 
 ```ts
 window.__avis.annotations       // getter, full array across all pages
-window.__avis.done              // getter, true once the user clicked Done
 window.__avis.pageUrl           // getter, current page URL
 window.__avis.reveal(id)        // smooth-scroll to the annotation + pulse its marker.
                                 // No-ops if the annotation isn't on the current page.
@@ -80,11 +79,9 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 4. **Don't auto-clear.** Existing annotations in `localStorage` are pending work — anything you addressed in a prior session was already removed via `resolve()`. Just continue. **Only call `window.__avis.clear()` if the user explicitly asks** ("start fresh," "clear," "reset"). Don't prompt them about it.
 
-5. **Hand off to the user.** Tell them: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Hit **Done** when finished, or type 'done' here."* Then stop and wait.
+5. **Hand off to the user.** Tell them: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished. (Copy button on the toolbar dumps the JSON to clipboard if you want it.)"* Then stop and wait.
 
-6. **Wait for the done signal.** Resume on either:
-   - The user types `done` / `ready` / similar in chat.
-   - Or, if the user asks you to poll, run `javascript_tool` with `window.__avis.done` every ~15–30s until it returns `true`. **Don't poll without being asked** — it burns tokens.
+6. **Wait for the done signal.** Resume when the user types `done` / `ready` / similar in chat. Don't poll the page — Claude Code is turn-based, and any polling burns tokens without buying responsiveness.
 
 7. **Read annotations back.** Run `JSON.stringify(window.__avis.annotations)` via `javascript_tool`. Parse the JSON. If the array is empty, tell the user and stop.
 

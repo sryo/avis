@@ -17,7 +17,6 @@
   const state = {
     annotations: load(),
     pointing: false,
-    done: false,
   };
 
   const workingIds = new Set();
@@ -28,7 +27,6 @@
   window.__avis = {
     // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
-    get done() { return state.done; },
     get pageUrl() { return location.href; },
     // Smooth-scroll to an annotation and pulse its marker. Returns false if
     // the annotation isn't on the current page (no cross-page navigation).
@@ -63,7 +61,6 @@
       if (i === -1) return false;
       state.annotations.splice(i, 1);
       workingIds.delete(id);
-      if (state.annotations.length === 0) state.done = false;
       persist();
       render();
       return true;
@@ -71,7 +68,6 @@
     // Wipe everything. Call this when the whole batch has been handled.
     clear() {
       state.annotations = [];
-      state.done = false;
       workingIds.clear();
       persist();
       render();
@@ -405,9 +401,7 @@
         color: inherit; text-decoration: none; cursor: pointer;
       }
       .brand:hover { opacity: 1; }
-      .btn.done-mode { background: #16a34a; color: #fff; min-width: 70px; }
-      .btn.done-mode:hover { background: #2a2a2a; }
-      .btn.done-mode.copied { background: #16a34a; }
+      .btn.copied { background: #16a34a; }
 
       .overlay {
         position: fixed; inset: 0;
@@ -519,16 +513,15 @@
         <button class="btn" data-act="point">+ annotate</button>
       </span>
       <span class="count">0</span>
-      <button class="btn primary" data-act="send">Done</button>
+      <button class="btn primary" data-act="copy">Copy</button>
     </div>
     <div class="marker-layer"></div>
   `;
 
   const pointBtn = shadow.querySelector("[data-act=point]");
-  const sendBtn = shadow.querySelector("[data-act=send]");
+  const copyBtn = shadow.querySelector("[data-act=copy]");
   const countSpan = shadow.querySelector(".count");
   const markerLayer = shadow.querySelector(".marker-layer");
-  const isTouch = window.matchMedia("(hover: none)").matches;
   let tentativeAnnotation = null;
   let editingId = null;
   let overlay = null;
@@ -543,17 +536,7 @@
     countSpan.textContent = String(visibleCount);
     pointBtn.classList.toggle("active", state.pointing);
     pointBtn.textContent = state.pointing ? "Cancel" : "+ annotate";
-    if (state.done) {
-      sendBtn.textContent = isTouch ? "Copy" : (sendBtn.matches(":hover") ? "Copy" : "✓ done");
-      sendBtn.disabled = false;
-      sendBtn.classList.remove("primary");
-      sendBtn.classList.add("done-mode");
-    } else {
-      sendBtn.textContent = "Done";
-      sendBtn.disabled = !hasAnnotations;
-      sendBtn.classList.add("primary");
-      sendBtn.classList.remove("done-mode");
-    }
+    copyBtn.disabled = !hasAnnotations;
     renderMarkers();
   }
 
@@ -825,14 +808,12 @@
           if (!text) {
             state.annotations.splice(i, 1);
             workingIds.delete(existing.id);
-            if (state.annotations.length === 0) state.done = false;
           } else if (text !== existing.comment) {
             state.annotations[i] = { ...state.annotations[i], comment: text };
           }
         }
       } else if (text) {
         state.annotations.push(capture(el, text));
-        state.done = false;
       }
       persist();
       closePopup();
@@ -959,26 +940,7 @@
     state.pointing ? exitPointMode() : enterPointMode();
   });
 
-  sendBtn.addEventListener("click", () => {
-    if (state.done) {
-      copyAnnotations();
-    } else {
-      if (state.annotations.length === 0) return;
-      state.done = true;
-      render();
-    }
-  });
-
-  if (!isTouch) {
-    sendBtn.addEventListener("mouseenter", () => {
-      if (state.done && sendBtn.textContent === "✓ done") sendBtn.textContent = "Copy";
-    });
-    sendBtn.addEventListener("mouseleave", () => {
-      if (state.done && sendBtn.textContent === "Copy") sendBtn.textContent = "✓ done";
-    });
-  }
-
-  async function copyAnnotations() {
+  copyBtn.addEventListener("click", async () => {
     if (state.annotations.length === 0) return;
     const json = JSON.stringify(state.annotations, null, 2);
     try {
@@ -992,17 +954,13 @@
       document.execCommand("copy");
       ta.remove();
     }
-    sendBtn.textContent = "✓ copied";
-    sendBtn.classList.add("copied");
+    copyBtn.textContent = "✓ copied";
+    copyBtn.classList.add("copied");
     setTimeout(() => {
-      sendBtn.classList.remove("copied");
-      if (state.done) {
-        sendBtn.textContent = isTouch ? "Copy" : (sendBtn.matches(":hover") ? "Copy" : "✓ done");
-      } else {
-        sendBtn.textContent = "Done";
-      }
+      copyBtn.classList.remove("copied");
+      copyBtn.textContent = "Copy";
     }, 1400);
-  }
+  });
 
   window.addEventListener("scroll", positionMarkers, { passive: true });
   window.addEventListener("resize", () => { refreshMarkerCoords(); positionMarkers(); });
