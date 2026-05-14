@@ -26,4 +26,5 @@ That's the whole project. Two files do the work.
 - **`toolbar.js` is vanilla JS. No build step. No bundler.** It must remain a single file that runs as-is when pasted into a page. Don't add `import`, JSX, or anything that needs compilation.
 - **No external runtime deps.** Not React, not lit, nothing. Style isolation comes from Shadow DOM.
 - **Skill must work on any page**, not just one stack. React paths are best-effort; the toolbar must still produce useful annotations on plain HTML / Vue / Svelte / static sites via the text + selector fallbacks.
-- **Keep it small.** This repo earned its place by being small. The toolbar is ~600 LOC; if you find yourself adding 200 more, ask whether the feature belongs in a separate skill.
+- **Keep it small.** This repo earned its place by being small. If you find yourself adding 200+ more LOC, ask whether the feature belongs in a separate skill.
+- **Schema compatibility.** The annotation shape must stay aligned with the [agentation v1.1 schema](https://www.agentation.com/schema). When the schema evolves, ours should too. Avis-specific extensions (`sourceFile`, `editedText`, etc.) are fine as long as they don't conflict with v1.1 field names or types.

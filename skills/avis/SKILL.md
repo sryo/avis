@@ -10,34 +10,59 @@ A floating toolbar gets injected onto whatever page the user has open. They clic
 
 ## What gets captured per annotation
 
+Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation.com/schema), plus a few avis extensions:
+
 ```ts
 {
-  id, comment, createdAt,
-  sourceFile,        // e.g. "src/components/NavItem.tsx:42"  (dev React only — may be null)
-  componentPath,     // e.g. "<App> <Layout> <NavItem>"        (any React build — may be null)
-  selector,          // e.g. "main > section.hero > h1"
-  tag, text,         // visible tag + truncated visible text
-  nearbyText,        // text from the parent — disambiguator
+  // Identity + content
+  id,                // "a<base36>" — unique per annotation
+  comment,           // user's text feedback
+  timestamp,         // Unix ms
+
+  // Element identification (agentation v1.1)
+  element,           // tag name, e.g. "button"
+  elementPath,       // CSS selector path
+  cssClasses,        // space-separated class list
+  text,              // truncated visible text
+  nearbyText,        // visible text from parent — disambiguator
   accessibility,     // role / aria-label / name / placeholder / input type
-  rect,              // viewport-relative bounding box at click time
-  pageUrl, pageTitle,
-  viewport           // size + scroll position
+  computedStyles,    // serialized key CSS properties (display, padding, color, …)
+  outerHTML,         // up to 1000 chars of the element's outerHTML
+
+  // Position (agentation v1.1)
+  x,                 // % of viewport width
+  y,                 // absolute px from document top
+  boundingBox,       // { x, y, width, height } — viewport-relative at click time
+  url,               // page URL
+  viewport,          // { width, height, scrollY, scrollX } at click time
+
+  // avis extensions
+  sourceFile,        // "src/components/NavItem.tsx:42" (dev React only — may be null)
+  reactComponents,   // "<App> <Layout> <NavItem>" (any React build — may be null)
+  pageTitle,         // document.title
 }
 ```
 
-**Priority order for locating the source to edit**: `sourceFile` → `componentPath` + grep → `text` + `tag` + grep → `selector`. If `sourceFile` is present, open that file/line directly. Otherwise grep the repo for `text`, narrowed by `tag` and `componentPath`.
+**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `elementPath`. If `sourceFile` is present, open that file/line directly. Otherwise grep the repo for `text`, narrowed by `element` and `reactComponents`.
 
 ## `window.__avis` API surface
 
 After injection, the toolbar exposes:
 
 ```ts
-window.__avis.annotations  // getter, copy of the current array
-window.__avis.done         // getter, true once the user clicked Done
-window.__avis.pageUrl      // getter, current page URL
-window.__avis.resolve(id)  // remove one annotation by id. Use this after editing.
-window.__avis.clear()      // wipe all annotations. Use when the whole batch is done.
+window.__avis.annotations       // getter, full array across all pages
+window.__avis.done              // getter, true once the user clicked Done
+window.__avis.pageUrl           // getter, current page URL
+window.__avis.reveal(id)        // smooth-scroll to the annotation + pulse its marker.
+                                // No-ops if the annotation isn't on the current page.
+window.__avis.markWorking(id)   // show a spinner badge on the marker while you work.
+window.__avis.unmarkWorking(id) // clear the spinner (rarely needed — resolve clears it too).
+window.__avis.resolve(id)       // remove one annotation by id once you've addressed it.
+                                // Implicitly clears its working state.
+window.__avis.clear()           // wipe all annotations. Use when the whole batch is done.
 ```
+
+**Per-page rendering.** Markers and the count only show annotations whose `pageUrl` matches the *current* `location.pathname`. The `annotations` getter still returns everything across all pages — so when the user navigates between pages while you're working, you can still see their full backlog. Don't be surprised if `annotations.length` is larger than the toolbar's count.
 
 ## Steps
 
@@ -64,11 +89,13 @@ window.__avis.clear()      // wipe all annotations. Use when the whole batch is 
    - Else, grep using `text` + `tag` (narrowed by `componentPath` if present) to find the source, then edit.
    - Group related annotations into a single batch of edits where it makes sense.
 
-10. **⚠ REQUIRED — clean up as you go.** This is the contract you owe the user.
-    - **After each annotation you successfully address**, call `window.__avis.resolve(<id>)` via `javascript_tool` to remove its marker from the page. The user can watch markers disappear and trust that the dot still on screen means "not yet handled."
-    - If you address the whole batch in one pass, you may call `window.__avis.clear()` at the end instead of individual `resolve()` calls.
+10. **⚠ REQUIRED — show your work and clean up as you go.** This is the contract you owe the user.
+    - **Before starting** on an annotation, call `window.__avis.reveal(<id>)` to scroll it into view and pulse the marker. The user gets to watch you work through the list. Skip this if you're processing many annotations as a single batch.
+    - **While working** on an annotation, call `window.__avis.markWorking(<id>)` so a spinner appears on that marker. The user sees in real time which dots you're currently handling.
+    - **After successfully addressing** an annotation, call `window.__avis.resolve(<id>)`. The marker disappears (spinner clears too).
+    - If you address the whole batch in one fast pass, you may call `window.__avis.clear()` at the end instead of individual `resolve()` calls.
     - **Never leave addressed annotations on the page.** A stale marker is a bug.
-    - If you couldn't address an annotation (couldn't locate the code, ambiguous, needs user clarification), **leave it** and tell the user explicitly which ones you skipped and why.
+    - If you couldn't address an annotation (couldn't locate the code, ambiguous, needs user clarification), **call `unmarkWorking(<id>)`**, leave the annotation in place, and tell the user explicitly which ones you skipped and why.
 
 11. **Optional toolbar removal.** When the user is fully done, you may run `document.getElementById("__avis_host")?.remove(); delete window.__avis;` to take the toolbar off the page. Leave it otherwise — they may want another round.
 

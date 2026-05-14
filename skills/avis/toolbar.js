@@ -20,16 +20,46 @@
     done: false,
   };
 
+  const workingIds = new Set();
+
   window.__avis = {
+    // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
     get done() { return state.done; },
     get pageUrl() { return location.href; },
+    // Smooth-scroll to an annotation and pulse its marker. Returns false if
+    // the annotation isn't on the current page (no cross-page navigation).
+    reveal(id) {
+      const a = state.annotations.find((x) => x.id === id);
+      if (!a || !isCurrentPage(a)) return false;
+      const absY = a.boundingBox.y + a.viewport.scrollY;
+      window.scrollTo({ top: Math.max(0, absY - 100), behavior: "smooth" });
+      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      if (m) {
+        m.classList.add("revealing");
+        setTimeout(() => m.classList.remove("revealing"), 800);
+      }
+      return true;
+    },
+    // Visually mark an annotation as in-progress (spinner badge on the marker).
+    markWorking(id) {
+      if (!state.annotations.find((x) => x.id === id)) return false;
+      workingIds.add(id);
+      render();
+      return true;
+    },
+    unmarkWorking(id) {
+      const had = workingIds.delete(id);
+      if (had) render();
+      return had;
+    },
     // Remove a single annotation by id once Claude has addressed it.
     // Returns true if removed, false if id wasn't found.
     resolve(id) {
       const i = state.annotations.findIndex((a) => a.id === id);
       if (i === -1) return false;
       state.annotations.splice(i, 1);
+      workingIds.delete(id);
       if (state.annotations.length === 0) state.done = false;
       persist();
       render();
@@ -39,13 +69,24 @@
     clear() {
       state.annotations = [];
       state.done = false;
+      workingIds.clear();
       persist();
       render();
     },
   };
 
+  function isCurrentPage(a) {
+    if (!a || !a.url) return false;
+    try { return new URL(a.url).pathname === location.pathname; }
+    catch { return false; }
+  }
+
+  function currentPageAnnotations() {
+    return state.annotations.filter(isCurrentPage);
+  }
+
   function load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(migrate); }
     catch { return []; }
   }
   function persist() {
@@ -179,24 +220,73 @@
     return t ? `<${tag}> "${t}"` : `<${tag}>`;
   }
 
+  // Curated subset of computed styles worth capturing for visual reasoning.
+  const RICH_STYLE_PROPS = [
+    "display", "position", "flex-direction", "justify-content", "align-items", "gap",
+    "padding", "margin", "color", "background-color", "background-image",
+    "font-size", "font-weight", "font-family", "line-height",
+    "border", "border-radius", "box-shadow", "opacity",
+    "transform", "z-index", "overflow", "width", "height",
+  ];
+
+  function serializeComputedStyles(el) {
+    const cs = window.getComputedStyle(el);
+    return RICH_STYLE_PROPS
+      .map((p) => [p, cs.getPropertyValue(p)])
+      .filter(([, v]) => v && v !== "none" && v !== "normal")
+      .map(([p, v]) => `${p}: ${v.trim()}`)
+      .join("; ");
+  }
+
+  // Annotation shape: aligns with agentation v1.1 schema where it overlaps,
+  // plus our extension fields (sourceFile, viewport, pageTitle).
   function capture(el, comment) {
     const r = el.getBoundingClientRect();
     const react = getReactInfo(el);
+    const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
+    const boundingBox = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
     return {
       id: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       comment,
-      sourceFile: react && react.source ? `${react.source.fileName}:${react.source.lineNumber}` : null,
-      componentPath: react ? react.componentPath : null,
-      selector: getSelector(el),
-      tag: el.tagName.toLowerCase(),
+      element: el.tagName.toLowerCase(),
+      elementPath: getSelector(el),
+      cssClasses: el.classList ? Array.from(el.classList).join(" ") : "",
+      x: viewport.width ? Math.round((r.left / viewport.width) * 100) : 0,
+      y: Math.round(r.top + viewport.scrollY),
+      boundingBox,
       text: visibleText(el),
       nearbyText: nearbyText(el),
       accessibility: a11y(el),
-      rect: { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
-      pageUrl: location.href,
+      computedStyles: serializeComputedStyles(el),
+      outerHTML: (el.outerHTML || "").slice(0, 1000),
+      reactComponents: react ? react.componentPath : null,
+      sourceFile: react && react.source ? `${react.source.fileName}:${react.source.lineNumber}` : null,
+      url: location.href,
       pageTitle: document.title,
-      viewport: { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) },
-      createdAt: new Date().toISOString(),
+      viewport,
+      timestamp: Date.now(),
+    };
+  }
+
+  // Migrate older localStorage entries (rect / pageUrl / tag / selector …) to
+  // the agentation v1.1 names so the rest of the code only deals with one shape.
+  function migrate(a) {
+    if (!a || a.boundingBox) return a;
+    const v = a.viewport || { width: 0, height: 0, scrollY: 0, scrollX: 0 };
+    const r = a.rect || { x: 0, y: 0, width: 0, height: 0 };
+    return {
+      ...a,
+      element: a.element || a.tag,
+      elementPath: a.elementPath || a.selector,
+      reactComponents: a.reactComponents || a.componentPath,
+      url: a.url || a.pageUrl,
+      boundingBox: a.boundingBox || r,
+      x: a.x !== undefined ? a.x : (v.width ? Math.round((r.x / v.width) * 100) : 0),
+      y: a.y !== undefined ? a.y : Math.round(r.y + (v.scrollY || 0)),
+      cssClasses: a.cssClasses || "",
+      computedStyles: a.computedStyles || "",
+      outerHTML: a.outerHTML || "",
+      timestamp: a.timestamp || (a.createdAt ? new Date(a.createdAt).getTime() : Date.now()),
     };
   }
 
@@ -233,42 +323,67 @@
       .btn.active { background: #ef4444; }
       .btn.active:hover { background: #f05555; }
 
-      .btn[data-act=point] {
+      .annotate-stack {
         position: relative;
+        display: inline-flex;
+        align-items: center;
+        margin: -4px 4px;
+      }
+      .annotate-stack::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, #fde675 0%, #e8d05c 100%);
+        transform: rotate(-7deg) translate(-3px, 2px);
+        transform-origin: center;
+        box-shadow: 0 2px 5px rgba(0,0,0,.15);
+        z-index: 0;
+        transition: transform .12s ease;
+      }
+      .annotate-stack:has(.btn.active)::before { display: none; }
+
+      .btn[data-act=point] {
+        --fold-x: 10px;
+        --fold-y: 8px;
+        position: relative;
+        z-index: 1;
         background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
         color: #1a1a0e;
         border-radius: 0;
+        border-bottom-right-radius: var(--fold-x) var(--fold-y);
+        corner-bottom-right-shape: bevel;
+        overflow: clip;
         padding: 12px 14px;
-        margin: -4px 4px -4px 4px;
         font-weight: 500;
         transform: rotate(-3deg);
         transform-origin: center;
-        box-shadow:
-          -3px 3px 0 0 #e8d05c,
-          -3px 3px 0 1px rgba(0,0,0,.1),
-          0 4px 8px rgba(0,0,0,.18);
+        box-shadow: 0 3px 7px rgba(0,0,0,.18);
         transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
       }
       .btn[data-act=point]:hover {
         transform: rotate(-3deg) translateY(-1px);
         background: linear-gradient(180deg, #fff7a8 0%, #faea84 100%);
-        box-shadow:
-          -4px 4px 0 0 #e8d05c,
-          -4px 4px 0 1px rgba(0,0,0,.1),
-          0 6px 12px rgba(0,0,0,.22);
+        box-shadow: 0 5px 10px rgba(0,0,0,.22);
+      }
+      .annotate-stack:hover::before {
+        transform: rotate(-7deg) translate(-4px, 3px);
       }
       .btn[data-act=point]::after {
         content: "";
+        background: inherit;
+        width: var(--fold-x); height: var(--fold-y);
         position: absolute;
-        bottom: 0; right: 0;
-        width: 8px; height: 8px;
-        background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,.12) 50%);
+        inset: auto 0 0 auto;
+        corner-top-left-shape: bevel;
+        border-top-left-radius: calc(100% - var(--fold-y)) 100%;
+        box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.2);
         pointer-events: none;
       }
       .btn[data-act=point].active {
         background: #ef4444;
         color: #fff;
         border-radius: 6px;
+        corner-bottom-right-shape: round;
         padding: 8px 12px;
         margin: 0;
         transform: none;
@@ -306,6 +421,8 @@
       }
 
       .popup {
+        --fold-x: 18px;
+        --fold-y: 14px;
         position: fixed;
         background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
         color: #1a1a0e;
@@ -313,8 +430,22 @@
         font-size: 13px; line-height: 1.4;
         font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
         box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 2px 4px rgba(0,0,0,.08);
-        transform: rotate(-1.5deg); transform-origin: top left;
+        transform: rotate(-2deg); transform-origin: top left;
         z-index: 110; pointer-events: auto;
+        border-bottom-right-radius: var(--fold-x) var(--fold-y);
+        corner-bottom-right-shape: bevel;
+        overflow: clip;
+      }
+      .popup::before {
+        content: "";
+        background: inherit;
+        width: var(--fold-x); height: var(--fold-y);
+        position: absolute;
+        inset: auto 0 0 auto;
+        corner-top-left-shape: bevel;
+        border-top-left-radius: calc(100% - var(--fold-y)) 100%;
+        box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.25);
+        pointer-events: none;
       }
       .popup .label {
         font-size: 11px; opacity: .55; margin-bottom: 10px;
@@ -331,6 +462,7 @@
         field-sizing: content;
         min-height: 36px; max-height: 240px;
         outline: none; color: inherit;
+        caret-color: #1a1a0e;
         overflow-y: auto;
       }
       .popup textarea:focus { border-bottom-color: rgba(0,0,0,.45); border-bottom-style: solid; }
@@ -352,14 +484,36 @@
       .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
       .marker.tentative {
         background: #f7e373; color: #1a1a0e;
-        outline: 2px dashed rgba(0,0,0,.3); outline-offset: 2px;
         cursor: default;
       }
       .marker.tentative:hover { background: #fde675; }
+      .marker.working::before {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        border-top-color: #3b82f6;
+        border-right-color: #3b82f6;
+        animation: avis-spin .8s linear infinite;
+        pointer-events: none;
+      }
+      .marker.revealing {
+        animation: avis-reveal .8s ease;
+      }
+      @keyframes avis-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes avis-reveal {
+        0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+        50% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(59,130,246,.3), 0 4px 10px rgba(0,0,0,.3); }
+      }
     </style>
     <div class="toolbar" role="toolbar" aria-label="avis">
       <a class="brand" href="https://github.com/sryo/avis" target="_blank" rel="noopener noreferrer">avis</a>
-      <button class="btn" data-act="point">+ annotate</button>
+      <span class="annotate-stack">
+        <button class="btn" data-act="point">+ annotate</button>
+      </span>
       <span class="count">0</span>
       <button class="btn primary" data-act="send">Done</button>
     </div>
@@ -372,14 +526,16 @@
   const markerLayer = shadow.querySelector(".marker-layer");
   const isTouch = window.matchMedia("(hover: none)").matches;
   let tentativeAnnotation = null;
+  let editingId = null;
   let overlay = null;
   let outline = null;
   let popup = null;
   let lastHoverEl = null;
 
   function render() {
-    const visibleCount = state.annotations.length + (tentativeAnnotation ? 1 : 0);
-    const hasAnnotations = state.annotations.length > 0;
+    const currentPage = currentPageAnnotations();
+    const visibleCount = currentPage.length + (tentativeAnnotation ? 1 : 0);
+    const hasAnnotations = currentPage.length > 0;
     countSpan.textContent = String(visibleCount);
     pointBtn.classList.toggle("active", state.pointing);
     pointBtn.textContent = state.pointing ? "Cancel" : "+ annotate";
@@ -399,29 +555,66 @@
 
   function renderMarkers() {
     markerLayer.replaceChildren();
+    const currentPage = currentPageAnnotations();
     const list = tentativeAnnotation
-      ? [...state.annotations, tentativeAnnotation]
-      : state.annotations;
+      ? [...currentPage, tentativeAnnotation]
+      : currentPage;
     list.forEach((a, i) => {
       const m = document.createElement("div");
       m.className = "marker";
-      if (a === tentativeAnnotation) m.classList.add("tentative");
+      if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
+      if (workingIds.has(a.id)) m.classList.add("working");
       m.textContent = String(i + 1);
       m.title = a.comment;
-      m.dataset.absX = String(a.rect.x + a.viewport.scrollX + a.rect.width - 11);
-      m.dataset.absY = String(a.rect.y + a.viewport.scrollY - 11);
+      m.dataset.absX = String(a.boundingBox.x + a.viewport.scrollX + a.boundingBox.width - 11);
+      m.dataset.absY = String(a.boundingBox.y + a.viewport.scrollY - 11);
       m.dataset.annotationId = a.id;
       markerLayer.appendChild(m);
     });
+    refreshMarkerCoords();
     positionMarkers();
   }
 
+  // Re-resolve each marker's absolute page coords from the live DOM. Expensive
+  // (one querySelector + reflow per element), so only called from layout events
+  // (resize, render) — NOT scroll, which can fire 60×/sec. Markers sharing the
+  // same elementPath stack vertically so they don't overlap.
+  function refreshMarkerCoords() {
+    const byPath = new Map();
+    markerLayer.querySelectorAll(".marker").forEach((m) => {
+      const id = m.dataset.annotationId;
+      const a = id ? state.annotations.find((x) => x.id === id) : null;
+      if (!a || !a.elementPath) return;
+      if (!byPath.has(a.elementPath)) byPath.set(a.elementPath, []);
+      byPath.get(a.elementPath).push(m);
+    });
+    byPath.forEach((markers, path) => {
+      try {
+        const el = document.querySelector(path);
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 && r.height <= 0) return;
+        const baseX = r.left + window.scrollX + r.width - 11;
+        const baseY = r.top + window.scrollY - 11;
+        markers.forEach((m, idx) => {
+          const nx = String(Math.round(baseX));
+          const ny = String(Math.round(baseY + idx * 26));
+          if (m.dataset.absX !== nx) m.dataset.absX = nx;
+          if (m.dataset.absY !== ny) m.dataset.absY = ny;
+        });
+      } catch {}
+    });
+  }
+
+  // Cheap path: just translate stored absolute coords by current scroll.
   function positionMarkers() {
     const sy = window.scrollY;
     const sx = window.scrollX;
     markerLayer.querySelectorAll(".marker").forEach((m) => {
-      m.style.left = (Number(m.dataset.absX) - sx) + "px";
-      m.style.top = (Number(m.dataset.absY) - sy) + "px";
+      const left = (Number(m.dataset.absX) - sx) + "px";
+      const top = (Number(m.dataset.absY) - sy) + "px";
+      if (m.style.left !== left) m.style.left = left;
+      if (m.style.top !== top) m.style.top = top;
     });
   }
 
@@ -467,7 +660,6 @@
     if (e.key === "Escape") {
       e.preventDefault();
       if (popup) {
-        // Discard — leave annotation unchanged.
         closePopup();
         if (overlay) overlay.style.pointerEvents = "auto";
         if (state.pointing) exitPointMode();
@@ -514,7 +706,7 @@
       <div class="hint">click outside to save · esc to discard</div>
     `;
     popup.querySelector(".label").textContent = isEdit
-      ? `<${existing.tag}> "${(existing.text || "").slice(0, 40)}"`
+      ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
     const W = 260, H_EST = 140;
     let px = x + 12, py = y + 12;
@@ -528,8 +720,10 @@
 
     if (!isEdit) {
       tentativeAnnotation = capture(el, "");
-      render();
+    } else {
+      editingId = existing.id;
     }
+    render();
 
     const ta = popup.querySelector("textarea");
     if (isEdit) ta.value = existing.comment;
@@ -570,13 +764,18 @@
     });
 
     // Click anywhere outside the popup → commit (save / delete / no-op based on content).
+    // Marker clicks are handled below in markerLayer's mousedown — let that
+    // path commit so it can also start a drag on the same gesture.
     function onOutside(e) {
       if (!popup) return;
-      if (e.composedPath().includes(popup)) return;
+      const path = e.composedPath();
+      if (path.includes(popup)) return;
+      if (path.some((n) => n.classList && n.classList.contains("marker"))) return;
       commit();
     }
     document.addEventListener("pointerdown", onOutside, true);
     popup._onOutside = onOutside;
+    popup._commit = commit;
 
     function commit() {
       const text = ta.value.trim();
@@ -585,6 +784,7 @@
         if (i !== -1) {
           if (!text) {
             state.annotations.splice(i, 1);
+            workingIds.delete(existing.id);
             if (state.annotations.length === 0) state.done = false;
           } else if (text !== existing.comment) {
             state.annotations[i] = { ...state.annotations[i], comment: text };
@@ -609,6 +809,7 @@
       popup = null;
     }
     tentativeAnnotation = null;
+    editingId = null;
   }
 
   // ---------- Marker click (edit) + drag (re-anchor) ----------
@@ -616,12 +817,20 @@
   let dragState = null;
 
   markerLayer.addEventListener("mousedown", (e) => {
-    const m = e.target.closest(".marker");
+    let m = e.target.closest(".marker");
     if (!m) return;
+    const id = m.dataset.annotationId;
+    // If a popup is open (likely editing this same marker), commit it first
+    // and rebind to the freshly rendered marker DOM.
+    if (popup && popup._commit) {
+      popup._commit();
+      m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      if (!m) return;
+    }
     e.preventDefault();
     e.stopPropagation();
     dragState = {
-      id: m.dataset.annotationId,
+      id,
       marker: m,
       startX: e.clientX,
       startY: e.clientY,
@@ -702,7 +911,7 @@
     const old = state.annotations[i];
     const updated = capture(target, old.comment);
     updated.id = old.id;
-    updated.createdAt = old.createdAt;
+    updated.timestamp = old.timestamp;
     state.annotations[i] = updated;
     persist();
     render();
@@ -760,7 +969,22 @@
   }
 
   window.addEventListener("scroll", positionMarkers, { passive: true });
-  window.addEventListener("resize", positionMarkers);
+  window.addEventListener("resize", () => { refreshMarkerCoords(); positionMarkers(); });
+
+  // Re-render on navigation (popstate + SPA pushState/replaceState). Coalesce
+  // via rAF so back/forward + framework replaceState in the same tick don't
+  // trigger a double render.
+  let navPending = false;
+  function scheduleRender() {
+    if (navPending) return;
+    navPending = true;
+    requestAnimationFrame(() => { navPending = false; render(); });
+  }
+  window.addEventListener("popstate", scheduleRender);
+  const _push = history.pushState;
+  history.pushState = function () { _push.apply(this, arguments); scheduleRender(); };
+  const _replace = history.replaceState;
+  history.replaceState = function () { _replace.apply(this, arguments); scheduleRender(); };
 
   render();
   console.log("[avis] toolbar installed — click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
