@@ -7,8 +7,7 @@ Point at things on a webpage. Tell Claude Code what to fix.
 ## Install
 
 ```bash
-git clone https://github.com/sryo/avis
-ln -s "$(pwd)/avis/skills/avis" ~/.claude/skills/avis
+git clone https://github.com/sryo/avis ~/.claude/skills/avis
 ```
 
 `/avis` should appear in your slash-command list. Restart Claude Code if it doesn't.

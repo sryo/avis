@@ -6,16 +6,15 @@ A Claude Code skill that runs a feedback session on any webpage. The user invoke
 
 ```
 .
-├── CLAUDE.md          # this file
-├── README.md          # public-facing intro + install
-├── LICENSE
-└── skills/
-    └── avis/
-        ├── SKILL.md   # the slash command's instructions for Claude
-        └── toolbar.js # vanilla-JS toolbar, no build step, no deps
+├── SKILL.md      # the slash command's instructions for Claude
+├── toolbar.js    # vanilla-JS toolbar, no build step, no deps
+├── README.md     # public-facing intro + install
+├── AGENTS.md     # this file
+├── CLAUDE.md     # pointer to AGENTS.md
+└── LICENSE
 ```
 
-That's the whole project. Two files do the work.
+The repo *is* the skill — clone it directly into `~/.claude/skills/avis` and Claude Code finds it. `SKILL.md` and `toolbar.js` do the work.
 
 ## Architecture in one paragraph
 
