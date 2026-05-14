@@ -2,19 +2,16 @@
 
 Point at things on a webpage. Tell Claude Code what to fix.
 
-`avis` is a Claude Code skill that drops a floating annotation toolbar onto any Chrome tab. You click `+ annotate`, point at an element, leave a comment, repeat. Hit **Done** and the annotations come back as a structured list of edits, with the source file and line number when it can find them.
+`avis` is a Claude Code skill that drops a floating annotation toolbar onto any Chrome tab via [claude-in-chrome](https://claude.ai/chrome). You click `+ annotate`, point at an element, leave a comment, repeat. Hit **Done** and the annotations come back as a structured list of edits, with the source file and line number when it can find them.
 
 ## Install
 
-Symlink the skill folder so Claude Code can see it:
-
 ```bash
-ln -s "$(pwd)/skills/avis" ~/.claude/skills/avis
+git clone https://github.com/sryo/avis
+ln -s "$(pwd)/avis/skills/avis" ~/.claude/skills/avis
 ```
 
 Restart Claude Code. `/avis` should show up.
-
-You'll also need the [claude-in-chrome](https://www.claude.com/claude-code) MCP extension connected. That's what lets Claude run JavaScript in your active tab.
 
 ## Use it
 
