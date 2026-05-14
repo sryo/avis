@@ -232,6 +232,53 @@
       .btn.primary:disabled { background: #1e3a66; cursor: default; }
       .btn.active { background: #ef4444; }
       .btn.active:hover { background: #f05555; }
+
+      .btn[data-act=point] {
+        position: relative;
+        background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
+        color: #1a1a0e;
+        border-radius: 0;
+        padding: 12px 14px;
+        margin: -4px 4px -4px 4px;
+        font-weight: 500;
+        transform: rotate(-3deg);
+        transform-origin: center;
+        box-shadow:
+          -3px 3px 0 0 #e8d05c,
+          -3px 3px 0 1px rgba(0,0,0,.1),
+          0 4px 8px rgba(0,0,0,.18);
+        transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+      }
+      .btn[data-act=point]:hover {
+        transform: rotate(-3deg) translateY(-1px);
+        background: linear-gradient(180deg, #fff7a8 0%, #faea84 100%);
+        box-shadow:
+          -4px 4px 0 0 #e8d05c,
+          -4px 4px 0 1px rgba(0,0,0,.1),
+          0 6px 12px rgba(0,0,0,.22);
+      }
+      .btn[data-act=point]::after {
+        content: "";
+        position: absolute;
+        bottom: 0; right: 0;
+        width: 8px; height: 8px;
+        background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,.12) 50%);
+        pointer-events: none;
+      }
+      .btn[data-act=point].active {
+        background: #ef4444;
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin: 0;
+        transform: none;
+        box-shadow: none;
+      }
+      .btn[data-act=point].active:hover {
+        background: #f05555;
+      }
+      .btn[data-act=point].active::after { display: none; }
+
       .count { padding: 0 6px; opacity: .65; font-variant-numeric: tabular-nums; }
       .brand {
         font-weight: 600; letter-spacing: .02em;
@@ -253,32 +300,41 @@
         border: 2px solid #3b82f6; background: rgba(59,130,246,.10);
         z-index: 55; transition: all .04s linear;
       }
+      .outline.drop {
+        border-color: #16a34a; background: rgba(22,163,74,.12);
+        z-index: 90;
+      }
 
       .popup {
-        position: fixed; background: #fff; color: #111;
-        border-radius: 10px; padding: 12px; width: 300px;
+        position: fixed;
+        background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
+        color: #1a1a0e;
+        border-radius: 0; padding: 14px; width: 260px;
         font-size: 13px; line-height: 1.4;
-        box-shadow: 0 10px 30px rgba(0,0,0,.25);
+        font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+        box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 2px 4px rgba(0,0,0,.08);
+        transform: rotate(-1.5deg); transform-origin: top left;
         z-index: 110; pointer-events: auto;
       }
       .popup .label {
-        font-size: 11px; opacity: .55; margin-bottom: 8px;
+        font-size: 11px; opacity: .55; margin-bottom: 10px;
         word-break: break-all; font-family: ui-monospace, monospace;
+        color: #1a1a0e;
+        cursor: grab; user-select: none;
       }
+      .popup.dragging { transition: none; }
+      .popup.dragging .label { cursor: grabbing; }
       .popup textarea {
-        width: 100%; border: 1px solid #ddd; border-radius: 6px;
-        padding: 8px; font: inherit; resize: vertical;
-        min-height: 70px; outline: none; color: #111;
+        width: 100%; background: transparent;
+        border: 0; border-bottom: 1px dashed rgba(0,0,0,.18);
+        padding: 4px 0; font: inherit; resize: none;
+        field-sizing: content;
+        min-height: 36px; max-height: 240px;
+        outline: none; color: inherit;
+        overflow-y: auto;
       }
-      .popup textarea:focus { border-color: #3b82f6; }
-      .popup .actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
-      .popup .actions .btn { background: #eee; color: #111; padding: 6px 10px; }
-      .popup .actions .btn:hover { background: #ddd; }
-      .popup .actions .btn.primary { background: #3b82f6; color: #fff; }
-      .popup .actions .btn.primary:hover { background: #4d8ff9; }
-      .popup .actions .btn.delete { background: #ef4444; color: #fff; margin-right: auto; }
-      .popup .actions .btn.delete:hover { background: #f05555; }
-      .popup .hint { font-size: 10px; opacity: .45; margin-top: 6px; }
+      .popup textarea:focus { border-bottom-color: rgba(0,0,0,.45); border-bottom-style: solid; }
+      .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
 
       .marker {
         position: fixed;
@@ -294,6 +350,12 @@
       }
       .marker:hover { background: #4d8ff9; }
       .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
+      .marker.tentative {
+        background: #f7e373; color: #1a1a0e;
+        outline: 2px dashed rgba(0,0,0,.3); outline-offset: 2px;
+        cursor: default;
+      }
+      .marker.tentative:hover { background: #fde675; }
     </style>
     <div class="toolbar" role="toolbar" aria-label="avis">
       <a class="brand" href="https://github.com/sryo/avis" target="_blank" rel="noopener noreferrer">avis</a>
@@ -309,14 +371,16 @@
   const countSpan = shadow.querySelector(".count");
   const markerLayer = shadow.querySelector(".marker-layer");
   const isTouch = window.matchMedia("(hover: none)").matches;
+  let tentativeAnnotation = null;
   let overlay = null;
   let outline = null;
   let popup = null;
   let lastHoverEl = null;
 
   function render() {
+    const visibleCount = state.annotations.length + (tentativeAnnotation ? 1 : 0);
     const hasAnnotations = state.annotations.length > 0;
-    countSpan.textContent = String(state.annotations.length);
+    countSpan.textContent = String(visibleCount);
     pointBtn.classList.toggle("active", state.pointing);
     pointBtn.textContent = state.pointing ? "Cancel" : "+ annotate";
     if (state.done) {
@@ -335,9 +399,13 @@
 
   function renderMarkers() {
     markerLayer.replaceChildren();
-    state.annotations.forEach((a, i) => {
+    const list = tentativeAnnotation
+      ? [...state.annotations, tentativeAnnotation]
+      : state.annotations;
+    list.forEach((a, i) => {
       const m = document.createElement("div");
       m.className = "marker";
+      if (a === tentativeAnnotation) m.classList.add("tentative");
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.absX = String(a.rect.x + a.viewport.scrollX + a.rect.width - 11);
@@ -398,8 +466,14 @@
   function onKeydown(e) {
     if (e.key === "Escape") {
       e.preventDefault();
-      if (popup) closePopup();
-      else if (state.pointing) exitPointMode();
+      if (popup) {
+        // Discard — leave annotation unchanged.
+        closePopup();
+        if (overlay) overlay.style.pointerEvents = "auto";
+        if (state.pointing) exitPointMode();
+      } else if (state.pointing) {
+        exitPointMode();
+      }
     }
   }
 
@@ -437,68 +511,104 @@
     popup.innerHTML = `
       <div class="label"></div>
       <textarea placeholder="What should change?"></textarea>
-      <div class="actions">
-        ${isEdit ? '<button class="btn delete" data-pop="delete">Delete</button>' : ''}
-        <button class="btn" data-pop="cancel">Cancel</button>
-        <button class="btn primary" data-pop="save">Save</button>
-      </div>
-      <div class="hint">⌘/Ctrl + Enter to save · Esc to cancel</div>
+      <div class="hint">click outside to save · esc to discard</div>
     `;
     popup.querySelector(".label").textContent = isEdit
       ? `<${existing.tag}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
-    const W = 300, H = 180;
+    const W = 260, H_EST = 140;
     let px = x + 12, py = y + 12;
     if (px + W > innerWidth - 8) px = innerWidth - W - 8;
-    if (py + H > innerHeight - 8) py = Math.max(8, y - H - 12);
+    if (py + H_EST > innerHeight - 8) py = Math.max(8, y - H_EST - 12);
     if (px < 8) px = 8;
     if (py < 8) py = 8;
     popup.style.left = px + "px";
     popup.style.top = py + "px";
     shadow.appendChild(popup);
 
+    if (!isEdit) {
+      tentativeAnnotation = capture(el, "");
+      render();
+    }
+
     const ta = popup.querySelector("textarea");
     if (isEdit) ta.value = existing.comment;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
-    popup.querySelector("[data-pop=cancel]").addEventListener("click", () => {
-      closePopup();
-      if (overlay) overlay.style.pointerEvents = "auto";
+
+    // Drag the popup by its label.
+    const labelEl = popup.querySelector(".label");
+    let drag = null;
+    labelEl.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      drag = {
+        startX: e.clientX,
+        startY: e.clientY,
+        baseLeft: parseFloat(popup.style.left) || 0,
+        baseTop: parseFloat(popup.style.top) || 0,
+      };
+      popup.classList.add("dragging");
+      document.addEventListener("mousemove", onPopupDrag);
+      document.addEventListener("mouseup", onPopupDragEnd);
     });
-    popup.querySelector("[data-pop=save]").addEventListener("click", save);
-    if (isEdit) popup.querySelector("[data-pop=delete]").addEventListener("click", del);
+    function onPopupDrag(e) {
+      if (!drag) return;
+      const nx = drag.baseLeft + e.clientX - drag.startX;
+      const ny = drag.baseTop + e.clientY - drag.startY;
+      popup.style.left = Math.max(-200, Math.min(innerWidth - 60, nx)) + "px";
+      popup.style.top = Math.max(0, Math.min(innerHeight - 30, ny)) + "px";
+    }
+    function onPopupDragEnd() {
+      drag = null;
+      popup.classList.remove("dragging");
+      document.removeEventListener("mousemove", onPopupDrag);
+      document.removeEventListener("mouseup", onPopupDragEnd);
+    }
+
     ta.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
     });
 
-    function save() {
+    // Click anywhere outside the popup → commit (save / delete / no-op based on content).
+    function onOutside(e) {
+      if (!popup) return;
+      if (e.composedPath().includes(popup)) return;
+      commit();
+    }
+    document.addEventListener("pointerdown", onOutside, true);
+    popup._onOutside = onOutside;
+
+    function commit() {
       const text = ta.value.trim();
-      if (!text) { ta.focus(); return; }
       if (isEdit) {
         const i = state.annotations.findIndex((a) => a.id === existing.id);
-        if (i !== -1) state.annotations[i] = { ...state.annotations[i], comment: text };
-      } else {
+        if (i !== -1) {
+          if (!text) {
+            state.annotations.splice(i, 1);
+            if (state.annotations.length === 0) state.done = false;
+          } else if (text !== existing.comment) {
+            state.annotations[i] = { ...state.annotations[i], comment: text };
+          }
+        }
+      } else if (text) {
         state.annotations.push(capture(el, text));
         state.done = false;
       }
       persist();
       closePopup();
       if (!isEdit) exitPointMode();
-      render();
-    }
-
-    function del() {
-      const i = state.annotations.findIndex((a) => a.id === existing.id);
-      if (i !== -1) state.annotations.splice(i, 1);
-      if (state.annotations.length === 0) state.done = false;
-      persist();
-      closePopup();
+      else if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }
   }
 
   function closePopup() {
-    if (popup) { popup.remove(); popup = null; }
+    if (popup) {
+      if (popup._onOutside) document.removeEventListener("pointerdown", popup._onOutside, true);
+      popup.remove();
+      popup = null;
+    }
+    tentativeAnnotation = null;
   }
 
   // ---------- Marker click (edit) + drag (re-anchor) ----------
@@ -528,10 +638,32 @@
     if (!dragState.moved && Math.hypot(dx, dy) > 5) {
       dragState.moved = true;
       dragState.marker.classList.add("dragging");
+      dragState.dropOutline = document.createElement("div");
+      dragState.dropOutline.className = "outline drop";
+      dragState.dropOutline.style.display = "none";
+      shadow.appendChild(dragState.dropOutline);
     }
-    if (dragState.moved) {
-      dragState.marker.style.left = (e.clientX - 11) + "px";
-      dragState.marker.style.top = (e.clientY - 11) + "px";
+    if (!dragState.moved) return;
+    dragState.marker.style.left = (e.clientX - 11) + "px";
+    dragState.marker.style.top = (e.clientY - 11) + "px";
+
+    dragState.marker.style.pointerEvents = "none";
+    host.style.pointerEvents = "none";
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    host.style.pointerEvents = "";
+    dragState.marker.style.pointerEvents = "auto";
+
+    if (target && target !== host && target !== dragState.lastTarget) {
+      dragState.lastTarget = target;
+      const r = target.getBoundingClientRect();
+      dragState.dropOutline.style.display = "block";
+      dragState.dropOutline.style.left = r.left + "px";
+      dragState.dropOutline.style.top = r.top + "px";
+      dragState.dropOutline.style.width = r.width + "px";
+      dragState.dropOutline.style.height = r.height + "px";
+    } else if (!target || target === host) {
+      dragState.dropOutline.style.display = "none";
+      dragState.lastTarget = null;
     }
   }
 
@@ -539,9 +671,10 @@
     document.removeEventListener("mousemove", onMarkerDragMove);
     document.removeEventListener("mouseup", onMarkerDragEnd);
     if (!dragState) return;
-    const { id, marker, moved } = dragState;
+    const { id, marker, moved, dropOutline } = dragState;
     dragState = null;
     marker.classList.remove("dragging");
+    if (dropOutline) dropOutline.remove();
 
     if (!moved) {
       // Click — open edit popup at the marker's position.
