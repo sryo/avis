@@ -22,12 +22,12 @@ Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation
   // Element identification (agentation v1.1)
   element,           // tag name, e.g. "button"
   elementPath,       // CSS selector path
-  cssClasses,        // space-separated class list
+  cssClasses,        // space-separated class list (avis: full list, not just selector-friendly)
   text,              // truncated visible text
   nearbyText,        // visible text from parent — disambiguator
   accessibility,     // role / aria-label / name / placeholder / input type
   computedStyles,    // serialized key CSS properties (display, padding, color, …)
-  outerHTML,         // up to 1000 chars of the element's outerHTML
+  outerHTML,         // up to 1000 chars of the element's outerHTML (avis extension)
 
   // Position (agentation v1.1)
   x,                 // % of viewport width

@@ -11,7 +11,7 @@
 //   7. Viewport rect + URL       -> screenshot / context
 
 (function () {
-  if (window.__avis) return;
+  if (window.__avis || document.getElementById("__avis_host")) return;
 
   const STORAGE_KEY = "avis:annotations";
   const state = {
@@ -22,6 +22,9 @@
 
   const workingIds = new Set();
 
+  const findAnnotation = (id) => state.annotations.find((a) => a.id === id);
+  const findAnnotationIndex = (id) => state.annotations.findIndex((a) => a.id === id);
+
   window.__avis = {
     // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
@@ -30,7 +33,7 @@
     // Smooth-scroll to an annotation and pulse its marker. Returns false if
     // the annotation isn't on the current page (no cross-page navigation).
     reveal(id) {
-      const a = state.annotations.find((x) => x.id === id);
+      const a = findAnnotation(id);
       if (!a || !isCurrentPage(a)) return false;
       const absY = a.boundingBox.y + a.viewport.scrollY;
       window.scrollTo({ top: Math.max(0, absY - 100), behavior: "smooth" });
@@ -43,20 +46,20 @@
     },
     // Visually mark an annotation as in-progress (spinner badge on the marker).
     markWorking(id) {
-      if (!state.annotations.find((x) => x.id === id)) return false;
+      if (!findAnnotation(id) || workingIds.has(id)) return false;
       workingIds.add(id);
       render();
       return true;
     },
     unmarkWorking(id) {
-      const had = workingIds.delete(id);
-      if (had) render();
-      return had;
+      if (!workingIds.delete(id)) return false;
+      render();
+      return true;
     },
     // Remove a single annotation by id once Claude has addressed it.
     // Returns true if removed, false if id wasn't found.
     resolve(id) {
-      const i = state.annotations.findIndex((a) => a.id === id);
+      const i = findAnnotationIndex(id);
       if (i === -1) return false;
       state.annotations.splice(i, 1);
       workingIds.delete(id);
@@ -170,6 +173,7 @@
         const cls = Array.from(cur.classList)
           .filter((c) => c.length < 30 && !/^(css-|_|sc-)/.test(c))
           .slice(0, 2)
+          .map((c) => CSS.escape(c))
           .join(".");
         if (cls) part += "." + cls;
       }
@@ -573,17 +577,27 @@
     });
     refreshMarkerCoords();
     positionMarkers();
+    // If a drag is in flight when render fires (e.g. the skill called
+    // markWorking on another annotation), rebind dragState.marker to the
+    // freshly mounted DOM so the in-progress drag keeps working.
+    if (dragState && dragState.id) {
+      const live = markerLayer.querySelector(`.marker[data-annotation-id="${dragState.id}"]`);
+      if (live) {
+        dragState.marker = live;
+        if (dragState.moved) live.classList.add("dragging");
+      }
+    }
   }
 
   // Re-resolve each marker's absolute page coords from the live DOM. Expensive
   // (one querySelector + reflow per element), so only called from layout events
-  // (resize, render) — NOT scroll, which can fire 60×/sec. Markers sharing the
-  // same elementPath stack vertically so they don't overlap.
+  // (resize, render) — NOT scroll, which can fire 60×/sec. After natural
+  // positioning, any markers that would visually overlap are bumped downward.
   function refreshMarkerCoords() {
+    const markerEls = Array.from(markerLayer.querySelectorAll(".marker"));
     const byPath = new Map();
-    markerLayer.querySelectorAll(".marker").forEach((m) => {
-      const id = m.dataset.annotationId;
-      const a = id ? state.annotations.find((x) => x.id === id) : null;
+    markerEls.forEach((m) => {
+      const a = m.dataset.annotationId ? findAnnotation(m.dataset.annotationId) : null;
       if (!a || !a.elementPath) return;
       if (!byPath.has(a.elementPath)) byPath.set(a.elementPath, []);
       byPath.get(a.elementPath).push(m);
@@ -594,16 +608,36 @@
         if (!el) return;
         const r = el.getBoundingClientRect();
         if (r.width <= 0 && r.height <= 0) return;
-        const baseX = r.left + window.scrollX + r.width - 11;
-        const baseY = r.top + window.scrollY - 11;
+        const baseX = Math.round(r.left + window.scrollX + r.width - 11);
+        const baseY = Math.round(r.top + window.scrollY - 11);
         markers.forEach((m, idx) => {
-          const nx = String(Math.round(baseX));
-          const ny = String(Math.round(baseY + idx * 26));
-          if (m.dataset.absX !== nx) m.dataset.absX = nx;
-          if (m.dataset.absY !== ny) m.dataset.absY = ny;
+          m.dataset.absX = String(baseX);
+          m.dataset.absY = String(baseY + idx * 26);
         });
       } catch {}
     });
+
+    // Collision pass: bump any marker that overlaps another. 22px marker +
+    // small breathing gap. Cap iterations so a pathological page can't hang us.
+    const HIT = 24;
+    const BUMP = 26;
+    for (let pass = 0; pass < 8; pass++) {
+      markerEls.sort((a, b) => Number(a.dataset.absY) - Number(b.dataset.absY));
+      let collided = false;
+      for (let i = 0; i < markerEls.length; i++) {
+        const ax = Number(markerEls[i].dataset.absX);
+        const ay = Number(markerEls[i].dataset.absY);
+        for (let j = i + 1; j < markerEls.length; j++) {
+          const bx = Number(markerEls[j].dataset.absX);
+          const by = Number(markerEls[j].dataset.absY);
+          if (Math.abs(bx - ax) < HIT && Math.abs(by - ay) < HIT) {
+            markerEls[j].dataset.absY = String(ay + BUMP);
+            collided = true;
+          }
+        }
+      }
+      if (!collided) break;
+    }
   }
 
   // Cheap path: just translate stored absolute coords by current scroll.
@@ -618,16 +652,22 @@
     });
   }
 
-  function elementAtClick(clientX, clientY) {
-    // Hide our chrome briefly so elementFromPoint sees the real page.
+  // Run document.elementFromPoint with our chrome (host + overlay + outline)
+  // temporarily transparent so the call sees the real page underneath.
+  function elementBeneathPoint(clientX, clientY, hideOutline = true) {
+    const ov = overlay && overlay.style.pointerEvents;
     if (overlay) overlay.style.pointerEvents = "none";
-    if (outline) outline.style.display = "none";
+    if (hideOutline && outline) outline.style.display = "none";
     host.style.pointerEvents = "none";
     const el = document.elementFromPoint(clientX, clientY);
     host.style.pointerEvents = "";
-    if (overlay) overlay.style.pointerEvents = "auto";
-    if (outline) outline.style.display = "block";
+    if (overlay) overlay.style.pointerEvents = ov || "auto";
+    if (hideOutline && outline) outline.style.display = "block";
     return el;
+  }
+
+  function elementAtClick(clientX, clientY) {
+    return elementBeneathPoint(clientX, clientY);
   }
 
   function enterPointMode() {
@@ -780,7 +820,7 @@
     function commit() {
       const text = ta.value.trim();
       if (isEdit) {
-        const i = state.annotations.findIndex((a) => a.id === existing.id);
+        const i = findAnnotationIndex(existing.id);
         if (i !== -1) {
           if (!text) {
             state.annotations.splice(i, 1);
@@ -857,9 +897,7 @@
     dragState.marker.style.top = (e.clientY - 11) + "px";
 
     dragState.marker.style.pointerEvents = "none";
-    host.style.pointerEvents = "none";
-    const target = document.elementFromPoint(e.clientX, e.clientY);
-    host.style.pointerEvents = "";
+    const target = elementBeneathPoint(e.clientX, e.clientY, false);
     dragState.marker.style.pointerEvents = "auto";
 
     if (target && target !== host && target !== dragState.lastTarget) {
@@ -887,7 +925,7 @@
 
     if (!moved) {
       // Click — open edit popup at the marker's position.
-      const ann = state.annotations.find((a) => a.id === id);
+      const ann = findAnnotation(id);
       if (!ann) return;
       const r = marker.getBoundingClientRect();
       openPopup(null, r.left, r.bottom, ann);
@@ -896,9 +934,7 @@
 
     // Drag-drop — find the element under the cursor, ignoring our own chrome.
     marker.style.pointerEvents = "none";
-    host.style.pointerEvents = "none";
-    const target = document.elementFromPoint(e.clientX, e.clientY);
-    host.style.pointerEvents = "";
+    const target = elementBeneathPoint(e.clientX, e.clientY, false);
     marker.style.pointerEvents = "auto";
 
     if (!target || target === host) {
@@ -906,7 +942,7 @@
       return;
     }
 
-    const i = state.annotations.findIndex((a) => a.id === id);
+    const i = findAnnotationIndex(id);
     if (i === -1) return;
     const old = state.annotations[i];
     const updated = capture(target, old.comment);
