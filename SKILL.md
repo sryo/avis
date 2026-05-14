@@ -25,6 +25,7 @@ Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation
   cssClasses,        // space-separated class list (avis: full list, not just selector-friendly)
   text,              // truncated visible text
   nearbyText,        // visible text from parent — disambiguator
+  parentContext,     // avis: { element, text, accessibility } of the parent — fallback when this element is unlabeled
   accessibility,     // role / aria-label / name / placeholder / input type
   computedStyles,    // serialized key CSS properties (display, padding, color, …)
   outerHTML,         // up to 1000 chars of the element's outerHTML (avis extension)
@@ -50,7 +51,11 @@ Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation
 After injection, the toolbar exposes:
 
 ```ts
-window.__avis.annotations       // getter, full array across all pages
+window.__avis.annotations       // getter, full array across all pages (heavy)
+window.__avis.summary()         // compact projection — same array, only the
+                                // fields needed to plan edits. Prefer this in
+                                // javascript_tool calls to avoid the chrome
+                                // bridge's content filter on large payloads.
 window.__avis.pageUrl           // getter, current page URL
 window.__avis.reveal(id)        // smooth-scroll to the annotation + pulse its marker.
                                 // No-ops if the annotation isn't on the current page.
@@ -68,7 +73,8 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 1. **Pick the target tab — try to skip the question.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. Resolve the URL in this order, only falling through to the next step when the previous misses:
    - **User named a URL** in chat → navigate there. Use `tabs_create_mcp` for a new tab, or `navigate` on an existing one.
    - **A tab is already on `localhost` / `127.0.0.1` / `0.0.0.0`** → use it, no ask.
-   - **Active tab is blank / `about:blank` / `chrome://newtab`** and you're working inside a code project → detect the running dev server before asking. Run `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` (Bash). If it returns a port, navigate the blank tab to `http://localhost:<port>` and proceed. Optionally peek at `package.json`'s `dev` / `start` script for a `--port` flag.
+   - **Active tab is blank / `about:blank` / `chrome://newtab`** and you're working inside a code project → detect the running dev server before asking. Run `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` (Bash). If it returns a port, navigate the blank tab to `http://localhost:<port>` and proceed.
+   - **Combine with project context.** If `package.json` exists in the cwd and lists `next` / `vite` / `astro` / `remix` / `react-scripts` etc. in dependencies, that's stronger evidence than `lsof` alone — proceed without confirmation. Optionally peek at the `dev` / `start` script for an explicit `--port` flag.
    - **Nothing detected** → ask the user where to point it, suggesting `http://localhost:3000` as the most common default.
 
    Tell the user one line about what you picked ("Opening http://localhost:5173 — looks like Vite is running.") so they can redirect if you guessed wrong.
@@ -83,13 +89,15 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 6. **Wait for the done signal.** Resume when the user types `done` / `ready` / similar in chat. Don't poll the page — Claude Code is turn-based, and any polling burns tokens without buying responsiveness.
 
-7. **Read annotations back.** Run `JSON.stringify(window.__avis.annotations)` via `javascript_tool`. Parse the JSON. If the array is empty, tell the user and stop.
+7. **Read annotations back.** Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — it returns the compact projection (id, comment, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url), which is enough to plan edits and won't trip the chrome bridge's content filter on large payloads. Parse the JSON. Only fetch the full `window.__avis.annotations` if you genuinely need `computedStyles` / `outerHTML` to reason about visuals. If the array is empty, tell the user and stop.
 
 8. **Echo a compact summary** to the user so they can see what you received. One line per annotation: index, short identifier (sourceFile or selector), the comment. Don't dump the full JSON unless asked.
 
 9. **Act on the annotations.** Treat them as a prioritized list of edits. For each:
    - If `sourceFile` is set, open it and edit at the captured line region.
-   - Else, grep using `text` + `tag` (narrowed by `componentPath` if present) to find the source, then edit.
+   - Else, grep using `text` + `element` (narrowed by `reactComponents` if present) to find the source, then edit.
+   - **Weak signal fallback.** If `sourceFile` and `reactComponents` are both null *and* `text` is empty / generic (≤ 3 chars, a single word like "div"/"span"), shift the grep to `parentContext.text` + `parentContext.element`. The user often anchored an overlay/wrapper inside a labeled component; the parent has the real name.
+   - Tell the user when you fell back to weak-signal mode so they know future annotations on the same element would be cleaner if anchored on a button/heading instead.
    - Group related annotations into a single batch of edits where it makes sense.
 
 10. **⚠ REQUIRED — show your work and clean up as you go.** This is the contract you owe the user.

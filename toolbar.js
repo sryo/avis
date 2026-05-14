@@ -28,6 +28,24 @@
     // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
+    // Compact projection — same array, but only the fields needed to plan
+    // edits. Drops outerHTML, computedStyles, cssClasses, accessibility,
+    // boundingBox, viewport, x, y, timestamp. Use this in javascript_tool
+    // to dodge the chrome bridge's content filter on large payloads.
+    summary() {
+      return state.annotations.map((a) => ({
+        id: a.id,
+        comment: a.comment,
+        sourceFile: a.sourceFile,
+        reactComponents: a.reactComponents,
+        element: a.element,
+        elementPath: a.elementPath,
+        text: a.text,
+        nearbyText: a.nearbyText,
+        parentContext: a.parentContext,
+        url: a.url,
+      }));
+    },
     // Smooth-scroll to an annotation and pulse its marker. Returns false if
     // the annotation isn't on the current page (no cross-page navigation).
     reveal(id) {
@@ -245,6 +263,12 @@
     const react = getReactInfo(el);
     const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
     const boundingBox = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+    const parent = el.parentElement;
+    const parentContext = parent ? {
+      element: parent.tagName.toLowerCase(),
+      text: visibleText(parent, 80),
+      accessibility: a11y(parent),
+    } : null;
     return {
       id: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       comment,
@@ -256,6 +280,7 @@
       boundingBox,
       text: visibleText(el),
       nearbyText: nearbyText(el),
+      parentContext,
       accessibility: a11y(el),
       computedStyles: serializeComputedStyles(el),
       outerHTML: (el.outerHTML || "").slice(0, 1000),
