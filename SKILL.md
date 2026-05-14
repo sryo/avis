@@ -1,6 +1,6 @@
 ---
 name: avis
-description: Run a feedback session on a webpage. Injects a floating annotation toolbar onto the active Chrome tab so the user can point at elements and leave comments, then reads those annotations back into the conversation as structured items to act on. Use whenever the user asks for "feedback," "annotate," "design review," "let me point at things," or wants a quick `/avis` pass on their dev server, staging, or any URL. Requires the claude-in-chrome MCP extension to be connected.
+description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a Chrome tab.
 allowed-tools: mcp__claude-in-chrome__* Read
 ---
 
