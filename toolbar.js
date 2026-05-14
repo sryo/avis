@@ -14,6 +14,16 @@
   if (window.__avis || document.getElementById("__avis_host")) return;
 
   const STORAGE_KEY = "avis:annotations";
+
+  // Fields exposed via window.__avis.summary(). Change here is the source of
+  // truth — SKILL.md mirrors this list. Excluded (only on .annotations):
+  // outerHTML, computedStyles, cssClasses, accessibility, boundingBox,
+  // viewport, x, y, timestamp, pageTitle.
+  const SUMMARY_FIELDS = [
+    "id", "comment", "sourceFile", "reactComponents",
+    "element", "elementPath", "text", "nearbyText",
+    "parentContext", "url",
+  ];
   const state = {
     annotations: load(),
     pointing: false,
@@ -28,23 +38,13 @@
     // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
-    // Compact projection — same array, but only the fields needed to plan
-    // edits. Drops outerHTML, computedStyles, cssClasses, accessibility,
-    // boundingBox, viewport, x, y, timestamp. Use this in javascript_tool
-    // to dodge the chrome bridge's content filter on large payloads.
+    // Compact projection — same array, only the SUMMARY_FIELDS. Use this in
+    // javascript_tool to dodge the chrome bridge's content filter on large
+    // payloads.
     summary() {
-      return state.annotations.map((a) => ({
-        id: a.id,
-        comment: a.comment,
-        sourceFile: a.sourceFile,
-        reactComponents: a.reactComponents,
-        element: a.element,
-        elementPath: a.elementPath,
-        text: a.text,
-        nearbyText: a.nearbyText,
-        parentContext: a.parentContext,
-        url: a.url,
-      }));
+      return state.annotations.map((a) =>
+        Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]]))
+      );
     },
     // Smooth-scroll to an annotation and pulse its marker. Returns false if
     // the annotation isn't on the current page (no cross-page navigation).

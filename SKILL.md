@@ -44,7 +44,7 @@ Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation
 }
 ```
 
-**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `elementPath`. If `sourceFile` is present, open that file/line directly. Otherwise grep the repo for `text`, narrowed by `element` and `reactComponents`.
+**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `parentContext.text` + `parentContext.element` (see step 9) → `elementPath`. If `sourceFile` is present, open that file/line directly. Otherwise grep the repo for `text`, narrowed by `element` and `reactComponents`.
 
 ## `window.__avis` API surface
 
