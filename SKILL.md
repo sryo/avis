@@ -1,7 +1,7 @@
 ---
 name: avis
 description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a Chrome tab.
-allowed-tools: mcp__claude-in-chrome__* Read
+allowed-tools: mcp__claude-in-chrome__* Read Bash(lsof:*)
 ---
 
 # avis — feedback session
@@ -66,7 +66,13 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 ## Steps
 
-1. **Confirm the target tab.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. If the user named a URL, navigate to it (`tabs_create_mcp` for a new tab, or `navigate` on an existing one). Otherwise ask which tab — or default to the active one if obvious.
+1. **Pick the target tab — try to skip the question.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. Resolve the URL in this order, only falling through to the next step when the previous misses:
+   - **User named a URL** in chat → navigate there. Use `tabs_create_mcp` for a new tab, or `navigate` on an existing one.
+   - **A tab is already on `localhost` / `127.0.0.1` / `0.0.0.0`** → use it, no ask.
+   - **Active tab is blank / `about:blank` / `chrome://newtab`** and you're working inside a code project → detect the running dev server before asking. Run `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` (Bash). If it returns a port, navigate the blank tab to `http://localhost:<port>` and proceed. Optionally peek at `package.json`'s `dev` / `start` script for a `--port` flag.
+   - **Nothing detected** → ask the user where to point it, suggesting `http://localhost:3000` as the most common default.
+
+   Tell the user one line about what you picked ("Opening http://localhost:5173 — looks like Vite is running.") so they can redirect if you guessed wrong.
 
 2. **Load the toolbar source.** Use `Read` on `toolbar.js` next to this SKILL.md. The file is ~600 LOC of vanilla JS, no deps.
 
