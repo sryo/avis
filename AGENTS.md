@@ -1,5 +1,7 @@
 # avis
 
+Architecture and invariants for the avis skill.
+
 ## Layout
 
 ```
