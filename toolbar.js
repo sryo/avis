@@ -462,7 +462,7 @@
         pointer-events: none;
       }
       .btn[data-act=point].active {
-        background: #ef4444;
+        background: #2a2a2a;
         color: #fff;
         border-radius: 6px;
         corner-bottom-right-shape: round;
@@ -472,7 +472,7 @@
         box-shadow: none;
       }
       .btn[data-act=point].active:hover {
-        background: #f05555;
+        background: #3a3a3a;
       }
       .btn[data-act=point].active::after { display: none; }
 
