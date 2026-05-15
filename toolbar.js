@@ -506,6 +506,13 @@
       .marker:hover { background: #4d8ff9; }
       .marker.agent { background: #8b5cf6; }
       .marker.agent:hover { background: #a07bf8; }
+      .marker.orphaned {
+        background: #94a3b8;
+        outline: 2px dashed rgba(0,0,0,.4);
+        outline-offset: -2px;
+        opacity: .75;
+      }
+      .marker.orphaned:hover { background: #a3aec0; opacity: 1; }
       .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
       .marker.tentative {
         background: #f7e373; color: #1a1a0e;
@@ -590,6 +597,14 @@
       const target = resolveTarget(a.elementPath);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
+      // Stash absolute page coords from capture-time geometry as an orphan
+      // fallback for positionMarkers when the live element can't be resolved.
+      const bb = a.boundingBox;
+      const vp = a.viewport;
+      if (bb && vp) {
+        m._orphanAbsX = bb.x + (vp.scrollX || 0) + bb.width - 11;
+        m._orphanAbsY = bb.y + (vp.scrollY || 0) - 11;
+      }
       const stackIdx = target ? (stackByEl.get(target) || 0) : 0;
       m._stackIndex = stackIdx;
       if (target) stackByEl.set(target, stackIdx + 1);
@@ -628,11 +643,24 @@
       });
       markers.forEach((m, i) => {
         const r = reads[i];
-        if (!r) return;
-        const left = Math.round(r.right - 11) + "px";
-        const top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
+        let left, top, orphaned;
+        if (r) {
+          left = Math.round(r.right - 11) + "px";
+          top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
+          orphaned = false;
+        } else if (m._orphanAbsX !== undefined) {
+          // Element is gone — render at the saved capture-time position so the
+          // comment doesn't silently vanish. Marker gets an `orphaned` class
+          // so it reads as stale (dashed outline, muted color).
+          left = Math.round(m._orphanAbsX - window.scrollX) + "px";
+          top = Math.round(m._orphanAbsY - window.scrollY + (m._stackIndex || 0) * 26) + "px";
+          orphaned = true;
+        } else {
+          return;
+        }
         if (m.style.left !== left) m.style.left = left;
         if (m.style.top !== top) m.style.top = top;
+        m.classList.toggle("orphaned", orphaned);
       });
     });
   }
@@ -677,15 +705,15 @@
   }
 
   function onKeydown(e) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      if (popup) {
-        closePopup();
-        if (overlay) overlay.style.pointerEvents = "auto";
-        if (state.pointing) exitPointMode();
-      } else if (state.pointing) {
-        exitPointMode();
-      }
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    // Staged: first Escape closes the popup (stays in point mode if active so
+    // the user can pick another element). Second Escape exits point mode.
+    if (popup) {
+      closePopup();
+      if (overlay) overlay.style.pointerEvents = "auto";
+    } else if (state.pointing) {
+      exitPointMode();
     }
   }
 
