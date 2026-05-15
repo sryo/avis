@@ -7,6 +7,7 @@
   const STORAGE_KEY = "avis:annotations";
   const CONSOLE_BUFFER_MAX = 200;
   const CONSOLE_WINDOW_MS = 60_000;
+  const CONSOLE_LOG_PER_ANNOTATION = 20;
 
   // Fields exposed via window.__avis.summary(). Source of truth — SKILL.md mirrors this list.
   const SUMMARY_FIELDS = [
@@ -29,7 +30,8 @@
       return s == null ? "[unserializable]" : (s.length > 200 ? s.slice(0, 200) + "…" : s);
     } catch { return "[unserializable]"; }
   }
-  for (const lvl of ["log", "warn", "error", "info", "debug"]) {
+  // log/warn/error only — debug/info on chatty pages would dominate the buffer.
+  for (const lvl of ["log", "warn", "error"]) {
     const orig = console[lvl];
     if (typeof orig !== "function") continue;
     console[lvl] = function (...args) {
@@ -211,31 +213,30 @@
   const isUnique = (sel, el) => {
     try {
       const matches = document.querySelectorAll(sel);
-      return matches.length === 1 && (!el || matches[0] === el);
+      return matches.length === 1 && matches[0] === el;
     } catch { return false; }
   };
-  // CSS.escape() is for IDENT context (class/id), not attribute string values.
-  const cssAttrEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
   function getSelector(el) {
     // Prefer stable test/aria/id attrs; each candidate must uniquely identify el.
-    const testid = el.getAttribute && el.getAttribute("data-testid");
+    // JSON.stringify on attr values handles the `\` and `"` escapes correctly for [attr="..."].
+    const testid = el.getAttribute("data-testid");
     if (testid) {
-      const sel = `[data-testid="${cssAttrEscape(testid)}"]`;
+      const sel = `[data-testid=${JSON.stringify(testid)}]`;
       if (isUnique(sel, el)) return sel;
     }
-    const test = el.getAttribute && el.getAttribute("data-test");
+    const test = el.getAttribute("data-test");
     if (test) {
-      const sel = `[data-test="${cssAttrEscape(test)}"]`;
+      const sel = `[data-test=${JSON.stringify(test)}]`;
       if (isUnique(sel, el)) return sel;
     }
     if (el.id && /^[a-z][\w-]*$/i.test(el.id)) {
       const sel = "#" + el.id;
       if (isUnique(sel, el)) return sel;
     }
-    const aria = el.getAttribute && el.getAttribute("aria-label");
+    const aria = el.getAttribute("aria-label");
     if (aria && aria.length < 80) {
-      const sel = `${el.tagName.toLowerCase()}[aria-label="${cssAttrEscape(aria)}"]`;
+      const sel = `${el.tagName.toLowerCase()}[aria-label=${JSON.stringify(aria)}]`;
       if (isUnique(sel, el)) return sel;
     }
     // Path cascade — short-circuit at the first depth that's already unique.
@@ -354,7 +355,9 @@
       outerHTML: (el.outerHTML || "").slice(0, 1000),
       reactComponents: react ? react.componentPath : null,
       sourceFile: react && react.source ? `${react.source.fileName}:${react.source.lineNumber}` : null,
-      consoleLog: consoleBuffer.filter((e) => e.ts >= Date.now() - CONSOLE_WINDOW_MS),
+      consoleLog: consoleBuffer
+        .filter((e) => e.ts >= Date.now() - CONSOLE_WINDOW_MS)
+        .slice(-CONSOLE_LOG_PER_ANNOTATION),
       url: location.href,
       pageTitle: document.title,
       viewport,
@@ -1066,6 +1069,9 @@
     const updated = capture(target, old.comment);
     updated.id = old.id;
     updated.timestamp = old.timestamp;
+    // Preserve the console window from the original pin — re-anchoring shouldn't
+    // overwrite the runtime context the user pinned to.
+    updated.consoleLog = old.consoleLog;
     state.annotations[i] = updated;
     persist();
     render();
