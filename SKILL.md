@@ -31,7 +31,7 @@ window.__avis.add(sel, comment, opts?)
                                 // threads under an existing annotation. Returns id.
 ```
 
-**Source + replies.** `source` is `"user"` (toolbar) or `"agent"` (`__avis.add()`). User markers are blue, agent markers violet. Clicking an agent marker opens a reply popup (yellow paper, agent's comment quoted in lavender). Committing creates a new user annotation with `replyTo` set. Reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
+**Source + replies.** `source` is `"user"` (toolbar) or `"agent"` (`__avis.add()`). Clicking an agent marker opens a reply popup; committing creates a new user annotation with `replyTo` set. Reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
 
 **Per-page rendering.** Markers and the count only show annotations on the current `location.pathname`. The `annotations` getter still returns everything across pages.
 
@@ -39,7 +39,7 @@ window.__avis.add(sel, comment, opts?)
 
 1. **Pick the target tab.** Call `mcp__claude-in-chrome__tabs_context_mcp`. Use a tab already on `localhost` / `127.0.0.1` / `0.0.0.0` if one's open. If the user named a URL, navigate. If the active tab is blank and you're in a code project, detect the dev server via `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` and/or `package.json` framework hints; navigate without asking if either hits. Otherwise ask. Tell the user one line about what you picked so they can redirect.
 
-2. **Pick the inject path.** `javascript_tool` is bottlenecked by model output speed: dictating 35 KB of `toolbar.js` as a tool argument costs ~140 s; the CDN loader is ~1 s. Run `git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `git -C ~/.claude/skills/avis rev-parse HEAD` (in parallel with step 1). Clean status → CDN (3a). Dirty → inline (3b) and tell the user: *"Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."*
+2. **Pick the inject path.** Run `git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `git -C ~/.claude/skills/avis rev-parse HEAD` (in parallel with step 1). Clean status → CDN (3a). Dirty → inline (3b) and tell the user: *"Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."*
 
 3. **Inject.**
 
@@ -61,7 +61,7 @@ window.__avis.add(sel, comment, opts?)
 
 4. **Hand off.** Tell the user: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait. Existing annotations in `localStorage` are pending work — leave them. Only call `clear()` if the user explicitly asks ("start fresh", "reset").
 
-5. **Read annotations back** when the user types `done` / `ready`. Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — returns the compact projection (id, comment, source, replyTo, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url). Only fetch the full `window.__avis.annotations` if you need `computedStyles` / `outerHTML`. If empty, tell the user and stop. Echo one line per annotation so they see what you got.
+5. **Read annotations back** when the user types `done` / `ready`. Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — returns the compact projection. Only fetch the full `window.__avis.annotations` if you need `computedStyles` / `outerHTML`. If empty, tell the user and stop. Echo one line per annotation so they see what you got.
 
 6. **Act.** For each annotation:
    - If `sourceFile` is set, open it and edit at the captured line.

@@ -30,9 +30,7 @@
   window.__avis = {
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
-    // Compact projection — same array, only the SUMMARY_FIELDS. Use this in
-    // javascript_tool to dodge the chrome bridge's content filter on large
-    // payloads.
+    // Use this in javascript_tool to dodge the chrome bridge's content filter on large payloads.
     summary() {
       return state.annotations.map((a) =>
         Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]]))
