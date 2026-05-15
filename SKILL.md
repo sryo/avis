@@ -100,11 +100,11 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 ## Notes
 
 - **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
-- **No backend wired up.** If neither `mcp__perch__*` nor `mcp__claude-in-chrome__*` is registered, suggest:
-  - macOS: `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash` (perch — AppleScript-based, supports Chrome family + Safari) or Anthropic's Claude in Chrome extension.
-  - Linux / Windows: Anthropic's Claude in Chrome extension (Chrome-only).
+- **No backend wired up.** Offer perch (macOS — you install it for the user, with their consent) or Claude in Chrome (any OS — they install it from the Chrome Web Store themselves). Wait for the pick.
 
-  Don't install for them. Let the user pick and re-run /avis.
+  For perch: explain what install will do (clones to `~/.perch`, registers via `claude mcp add`, prompts for browser permission toggles on first use), get explicit consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
+
+  Either path: the user restarts Claude Code before re-running `/avis`.
 
 - **perch permission setup.** First call may surface a permission hint. Pass it through verbatim — the user has to flip the toggle themselves. Common: `View > Developer > Allow JavaScript from Apple Events` for Chromium-family browsers, or the equivalent under Safari's Develop menu.
 
