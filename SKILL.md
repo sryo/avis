@@ -100,9 +100,9 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 ## Notes
 
 - **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
-- **No backend wired up.** Offer perch (macOS — you install it for the user, with their consent) or Claude in Chrome (any OS — they install it from the Chrome Web Store themselves). Wait for the pick.
+- **No backend wired up.** Offer perch (macOS — you install it for the user) or Claude in Chrome (any OS — they install it from the Chrome Web Store).
 
-  For perch: explain what install will do (clones to `~/.perch`, registers via `claude mcp add`, prompts for browser permission toggles on first use), get explicit consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
+  For perch: explain what install will do (clones to `~/.perch`, registers via `claude mcp add`, prompts for browser permission toggles on first use), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
 
   Either path: the user restarts Claude Code before re-running `/avis`.
 
