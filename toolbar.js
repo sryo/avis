@@ -20,7 +20,8 @@
   // outerHTML, computedStyles, cssClasses, accessibility, boundingBox,
   // viewport, x, y, timestamp, pageTitle.
   const SUMMARY_FIELDS = [
-    "id", "comment", "sourceFile", "reactComponents",
+    "id", "comment", "source", "replyTo",
+    "sourceFile", "reactComponents",
     "element", "elementPath", "text", "nearbyText",
     "parentContext", "url",
   ];
@@ -90,6 +91,18 @@
       persist();
       render();
       return true;
+    },
+    // Agent-authored annotation. Pass a CSS selector or live Element, plus
+    // optional { replyTo } to thread under an existing annotation.
+    add(selectorOrEl, comment, opts = {}) {
+      if (!comment) return null;
+      const el = typeof selectorOrEl === "string" ? resolveTarget(selectorOrEl) : selectorOrEl;
+      if (!el || el.nodeType !== 1) return null;
+      const a = capture(el, comment, { source: "agent", replyTo: opts.replyTo || null });
+      state.annotations.push(a);
+      persist();
+      render();
+      return a.id;
     },
     clear() {
       state.annotations = [];
@@ -265,7 +278,7 @@
 
   // Annotation shape: aligns with agentation v1.1 schema where it overlaps,
   // plus our extension fields (sourceFile, viewport, pageTitle).
-  function capture(el, comment) {
+  function capture(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
     const react = getReactInfo(el);
     const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
@@ -279,6 +292,8 @@
     return {
       id: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       comment,
+      source: opts.source || "user",
+      replyTo: opts.replyTo || null,
       element: el.tagName.toLowerCase(),
       elementPath: getSelector(el),
       cssClasses: el.classList ? Array.from(el.classList).join(" ") : "",
@@ -469,6 +484,18 @@
         color: #1a1a0e;
         cursor: grab; user-select: none;
       }
+      /* Reply: quote the agent's parent comment in a lavender block inside the
+         yellow user paper — gives the visual cue "this is replying to an agent
+         post-it" without restructuring the popup. */
+      .popup.reply .label {
+        background: linear-gradient(180deg, #f0e7ff 0%, #e2d4ff 100%);
+        color: #2a1f4d;
+        padding: 8px 10px;
+        font-family: -apple-system, system-ui, sans-serif;
+        font-size: 12px;
+        opacity: 1;
+        word-break: normal;
+      }
       .popup.dragging { transition: none; }
       .popup.dragging .label { cursor: grabbing; }
       .popup textarea {
@@ -496,6 +523,8 @@
         user-select: none;
       }
       .marker:hover { background: #4d8ff9; }
+      .marker.agent { background: #8b5cf6; }
+      .marker.agent:hover { background: #a07bf8; }
       .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
       .marker.tentative {
         background: #f7e373; color: #1a1a0e;
@@ -571,6 +600,7 @@
     list.forEach((a, i) => {
       const m = document.createElement("div");
       m.className = "marker";
+      if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
       if (workingIds.has(a.id)) m.classList.add("working");
       m.textContent = String(i + 1);
@@ -707,19 +737,27 @@
     if (popup) closePopup();
     if (outline) outline.style.display = "none";
     if (overlay) overlay.style.pointerEvents = "none";
-    const isEdit = !!existing;
+    // Click on agent marker → reply (creates a new user annotation linked via replyTo).
+    // Click on user marker → edit. New element click → create.
+    const isReply = !!existing && existing.source === "agent";
+    const isEdit = !!existing && !isReply;
+    const isCreate = !existing;
+    // Reply needs a fresh element to anchor to; resolve from the parent's selector.
+    if (isReply && !el) el = resolveTarget(existing.elementPath);
     // Edit path bypasses point mode's keydown install — own it here, release in closePopup.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
     popup = document.createElement("div");
-    popup.className = "popup";
+    popup.className = "popup" + (isReply ? " reply" : "");
     popup._ownsKeydown = ownsKeydown;
     popup.innerHTML = `
       <div class="label"></div>
-      <textarea placeholder="What should change?"></textarea>
+      <textarea placeholder="${isReply ? "reply…" : "What should change?"}"></textarea>
       <div class="hint">click outside to save · esc to discard</div>
     `;
-    popup.querySelector(".label").textContent = isEdit
+    popup.querySelector(".label").textContent = isReply
+      ? `↪ ${(existing.comment || "").slice(0, 60)}`
+      : isEdit
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
     const W = 260, H_EST = 140;
@@ -732,10 +770,10 @@
     popup.style.top = py + "px";
     shadow.appendChild(popup);
 
-    if (!isEdit) {
-      tentativeAnnotation = capture(el, "");
-    } else {
+    if (isEdit) {
       editingId = existing.id;
+    } else if (el) {
+      tentativeAnnotation = capture(el, "", isReply ? { replyTo: existing.id } : undefined);
     }
     render();
 
@@ -803,12 +841,12 @@
             state.annotations[i] = { ...state.annotations[i], comment: text };
           }
         }
-      } else if (text) {
-        state.annotations.push(capture(el, text));
+      } else if (text && el) {
+        state.annotations.push(capture(el, text, isReply ? { replyTo: existing.id } : undefined));
       }
       persist();
       closePopup();
-      if (!isEdit) exitPointMode();
+      if (isCreate) exitPointMode();
       else if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }

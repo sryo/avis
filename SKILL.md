@@ -64,7 +64,13 @@ window.__avis.unmarkWorking(id) // clear the spinner (rarely needed — resolve 
 window.__avis.resolve(id)       // remove one annotation by id once you've addressed it.
                                 // Implicitly clears its working state.
 window.__avis.clear()           // wipe all annotations. Use when the whole batch is done.
+window.__avis.add(sel, comment, opts?)
+                                // pin your own comment to an element. sel is a CSS
+                                // selector or live Element. opts.replyTo threads under
+                                // an existing annotation. Returns the new id, or null.
 ```
+
+**Annotation `source`** is `"user"` (default, created via the toolbar) or `"agent"` (created via `__avis.add()`). User markers are blue, agent markers are violet. Clicking an agent marker on the page opens a *reply* popup (yellow user paper, agent's parent comment quoted in lavender) — committing creates a new user annotation with `replyTo` set to the parent id. You can reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
 
 **Per-page rendering.** Markers and the count only show annotations whose `pageUrl` matches the *current* `location.pathname`. The `annotations` getter still returns everything across all pages — so when the user navigates between pages while you're working, you can still see their full backlog. Don't be surprised if `annotations.length` is larger than the toolbar's count.
 
@@ -115,7 +121,7 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 6. **Wait for the done signal.** Resume when the user types `done` / `ready` / similar in chat. Don't poll the page — Claude Code is turn-based, and any polling burns tokens without buying responsiveness.
 
-7. **Read annotations back.** Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — it returns the compact projection (id, comment, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url), which is enough to plan edits and won't trip the chrome bridge's content filter on large payloads. Parse the JSON. Only fetch the full `window.__avis.annotations` if you genuinely need `computedStyles` / `outerHTML` to reason about visuals. If the array is empty, tell the user and stop.
+7. **Read annotations back.** Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — it returns the compact projection (id, comment, source, replyTo, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url), which is enough to plan edits and won't trip the chrome bridge's content filter on large payloads. Parse the JSON. Only fetch the full `window.__avis.annotations` if you genuinely need `computedStyles` / `outerHTML` to reason about visuals. If the array is empty, tell the user and stop.
 
 8. **Echo a compact summary** to the user so they can see what you received. One line per annotation: index, short identifier (sourceFile or selector), the comment. Don't dump the full JSON unless asked.
 
@@ -143,6 +149,26 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 - **Frameworks other than React.** `sourceFile` and `componentPath` will be null. Vue/Svelte/static HTML still get `text` + `nearbyText` + `selector` + `accessibility` — enough for a competent grep.
 - **Non-Chrome browsers.** This skill needs `claude-in-chrome`. Tell the user so and stop.
 - **Persistence.** Annotations live in `localStorage` under `avis:annotations` and survive refreshes. Only `resolve(id)` and `clear()` actually remove them — they're not auto-deleted on Done.
+
+## When the user asks you to annotate
+
+The user can flip the direction — instead of pointing things out for you, they ask you to pin comments to elements. Trigger families (not modes — same mechanic, different reason):
+
+- **Critique / review** — "what's wrong here", "critique this design"
+- **Walkthrough / explain** — "annotate how this flow works", "walk me through the page"
+- **Diff / changes** — "show me what changed in the last 10 commits on the page", "annotate yesterday's diffs"
+- **Locate / map** — "where does X live", "highlight components owned by team Y"
+- **Onboarding / docs** — "annotate the key parts for a new dev"
+
+Flow:
+1. Make sure the toolbar is mounted (steps 1-3 of the regular flow).
+2. Pull whatever sources the request needs: `mcp__claude-in-chrome__read_page` / `get_page_text` for page content, `git log` / `git diff` / `Read` for code-side context. Ask for a screenshot if the issue is visual.
+3. For each finding, call `window.__avis.add('<selector>', '<comment>')` via `javascript_tool`. Use a CSS selector specific enough to resolve to one element (prefer `[data-testid]`, stable class names, or `:nth-of-type` paths over generic tags). Batch multiple `add()` calls into one `javascript_tool` payload to save round-trips.
+4. Tell the user how many you placed and stop. They review on the page; they can click a marker to reply, or right-click to dismiss it via the regular flow.
+
+If the user later replies to one of your annotations, you'll see their reply in `summary()` with `replyTo` pointing at your annotation's id. Treat it as a follow-up question, not a new work item. You can reply back with `__avis.add(sel, comment, { replyTo: <theirReplyId> })`.
+
+Don't mix this with the user-driven flow in the same session unless explicitly asked — your annotations land in the same backlog as theirs.
 
 ## When to suggest using `/avis`
 
