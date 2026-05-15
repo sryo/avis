@@ -257,6 +257,12 @@
     const r = el.getBoundingClientRect();
     const react = getReactInfo(el);
     const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
+    const client = {
+      userAgent: navigator.userAgent,
+      platform: navigator.userAgentData?.platform || navigator.platform,
+      devicePixelRatio: window.devicePixelRatio,
+      colorScheme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+    };
     const boundingBox = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
     const parent = el.parentElement;
     const parentContext = parent ? {
@@ -286,6 +292,7 @@
       url: location.href,
       pageTitle: document.title,
       viewport,
+      client,
       timestamp: Date.now(),
     };
   }
