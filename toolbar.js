@@ -93,6 +93,7 @@
       persist();
       render();
     },
+    persistOK() { return !persistBroken; },
   };
 
   function isCurrentPage(a) {
@@ -109,9 +110,15 @@
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
     catch { return []; }
   }
+  let persistBroken = false;
   function persist() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.annotations)); }
-    catch {}
+    catch (e) {
+      if (!persistBroken) console.warn("[avis] persist failed — annotations won't survive a reload.", e);
+      persistBroken = true;
+      const tb = typeof shadow !== "undefined" && shadow.querySelector(".toolbar");
+      if (tb) tb.classList.add("persist-broken");
+    }
   }
 
   function getFiberKey(el) {
@@ -317,6 +324,16 @@
         box-shadow: 0 6px 20px rgba(0,0,0,.25);
         z-index: 100; pointer-events: auto;
       }
+      .toolbar.persist-broken::before {
+        content: "!";
+        position: absolute; top: -6px; left: -6px;
+        width: 16px; height: 16px;
+        background: #b91c1c; color: #fff;
+        border-radius: 50%;
+        font: 700 11px/16px -apple-system, system-ui, sans-serif;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,.3);
+      }
       .btn {
         background: #2a2a2a; color: #fff; border: 0;
         padding: 8px 12px; border-radius: 6px;
@@ -404,6 +421,7 @@
       }
       .brand:hover { opacity: 1; }
       .btn.copied { background: #16a34a; }
+      .btn.copy-failed { background: #b91c1c; }
 
       .copy-stack { display: inline-grid; }
       .copy-stack > .copy-state {
@@ -411,9 +429,12 @@
         display: inline-flex; align-items: center; gap: 6px;
         justify-self: center;
       }
-      .copy-stack > .copy-state.copied { visibility: hidden; }
+      .copy-stack > .copy-state.copied,
+      .copy-stack > .copy-state.failed { visibility: hidden; }
       .btn.copied .copy-stack > .copy-state.normal { visibility: hidden; }
       .btn.copied .copy-stack > .copy-state.copied { visibility: visible; }
+      .btn.copy-failed .copy-stack > .copy-state.normal { visibility: hidden; }
+      .btn.copy-failed .copy-stack > .copy-state.failed { visibility: visible; }
       .copy-count { font-variant-numeric: tabular-nums; opacity: .75; }
       .copy-count:empty { display: none; }
 
@@ -550,6 +571,7 @@
         <span class="copy-stack">
           <span class="copy-state normal">copy<span class="copy-count"></span></span>
           <span class="copy-state copied">✓ copied</span>
+          <span class="copy-state failed">✗ copy failed</span>
         </span>
       </button>
     </div>
@@ -712,12 +734,17 @@
     if (popup) {
       closePopup();
       if (overlay) overlay.style.pointerEvents = "auto";
+      // Replay hover so the outline reappears under the cursor immediately,
+      // instead of waiting for the next mousemove to redraw.
+      if (state.pointing) { lastHoverEl = null; onHover({ clientX: lastHoverX, clientY: lastHoverY }); }
     } else if (state.pointing) {
       exitPointMode();
     }
   }
 
+  let lastHoverX = 0, lastHoverY = 0;
   function onHover(e) {
+    lastHoverX = e.clientX; lastHoverY = e.clientY;
     const el = elementBeneathPoint(e.clientX, e.clientY);
     if (!el) {
       if (lastHoverEl !== null) { outline.style.display = "none"; lastHoverEl = null; }
@@ -851,8 +878,9 @@
       }
       persist();
       closePopup();
-      if (isCreate) exitPointMode();
-      else if (overlay) overlay.style.pointerEvents = "auto";
+      // Stay in point mode after a create so the user can keep batch-annotating.
+      // Esc (now staged: closes popup first, exits point mode on second press) is the way out.
+      if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }
   }
@@ -892,7 +920,25 @@
     };
     document.addEventListener("mousemove", onMarkerDragMove);
     document.addEventListener("mouseup", onMarkerDragEnd);
+    document.addEventListener("keydown", onMarkerDragKey, true);
   });
+
+  function onMarkerDragKey(e) {
+    if (e.key !== "Escape" || !dragState) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cancelMarkerDrag();
+  }
+  function cancelMarkerDrag() {
+    if (!dragState) return;
+    document.removeEventListener("mousemove", onMarkerDragMove);
+    document.removeEventListener("mouseup", onMarkerDragEnd);
+    document.removeEventListener("keydown", onMarkerDragKey, true);
+    if (dragState.dropOutline) dragState.dropOutline.remove();
+    dragState.marker.classList.remove("dragging");
+    dragState = null;
+    render();
+  }
 
   function onMarkerDragMove(e) {
     if (!dragState) return;
@@ -931,6 +977,7 @@
   function onMarkerDragEnd(e) {
     document.removeEventListener("mousemove", onMarkerDragMove);
     document.removeEventListener("mouseup", onMarkerDragEnd);
+    document.removeEventListener("keydown", onMarkerDragKey, true);
     if (!dragState) return;
     const { id, marker, moved, dropOutline } = dragState;
     dragState = null;
@@ -972,9 +1019,11 @@
   copyBtn.addEventListener("click", async () => {
     if (state.annotations.length === 0) return;
     const json = JSON.stringify(state.annotations, null, 2);
-    await navigator.clipboard.writeText(json);
-    copyBtn.classList.add("copied");
-    setTimeout(() => copyBtn.classList.remove("copied"), 1400);
+    let ok = true;
+    try { await navigator.clipboard.writeText(json); }
+    catch { ok = false; }
+    copyBtn.classList.add(ok ? "copied" : "copy-failed");
+    setTimeout(() => copyBtn.classList.remove(ok ? "copied" : "copy-failed"), 1400);
   });
 
   // Capture-phase: scroll events don't bubble, but capture catches them from

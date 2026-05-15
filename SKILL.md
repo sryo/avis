@@ -29,6 +29,8 @@ window.__avis.clear()           // wipe all annotations
 window.__avis.add(sel, comment, opts?)
                                 // pin your own comment to an element. opts.replyTo
                                 // threads under an existing annotation. Returns id.
+window.__avis.persistOK()       // false if localStorage writes have failed (quota,
+                                // private mode, etc.) — annotations won't survive reload.
 ```
 
 **Source + replies.** `source` is `"user"` (toolbar) or `"agent"` (`__avis.add()`). Clicking an agent marker opens a reply popup; committing creates a new user annotation with `replyTo` set. Reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
