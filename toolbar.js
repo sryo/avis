@@ -14,11 +14,16 @@
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
     "element", "elementPath", "text", "nearbyText",
-    "parentContext", "consoleLog", "url",
+    "parentContext", "consoleLog", "priorClicks", "url",
   ];
 
   // Ring buffer of recent console.* output, sliced into each annotation at capture.
   const consoleBuffer = [];
+
+  // Last N real user clicks (outside the toolbar), captured into each annotation so
+  // an agent reading it back can reproduce overlay/menu state by replaying the chain.
+  const PRIOR_CLICKS_MAX = 3;
+  const clickChain = [];
   function serializeConsoleArg(a) {
     if (a == null) return String(a);
     const t = typeof a;
@@ -369,6 +374,7 @@
       consoleLog: consoleBuffer
         .filter((e) => e.ts >= Date.now() - CONSOLE_WINDOW_MS)
         .slice(-CONSOLE_LOG_PER_ANNOTATION),
+      priorClicks: clickChain.slice(),
       url: location.href,
       pageTitle: document.title,
       viewport,
@@ -584,6 +590,17 @@
         overflow-y: auto;
       }
       .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
+      .popup .trail {
+        font-size: 10px;
+        opacity: .6;
+        margin-bottom: 6px;
+        color: #1a1a0e;
+        font-family: ui-monospace, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .popup .trail:empty { display: none; }
 
       .marker {
         position: fixed;
@@ -633,6 +650,19 @@
         border-radius: 50%;
         box-shadow: 0 0 0 1px rgba(0,0,0,.25);
         pointer-events: none;
+      }
+      .marker .depth-dots {
+        position: absolute;
+        bottom: -3px; left: -3px;
+        font: 700 8px/8px -apple-system, system-ui, sans-serif;
+        letter-spacing: 1px;
+        color: #1a1a0e;
+        background: rgba(255,255,255,.92);
+        padding: 2px 3px;
+        border-radius: 8px;
+        box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+        pointer-events: none;
+        white-space: nowrap;
       }
       .marker.revealing {
         animation: avis-reveal .8s ease;
@@ -700,6 +730,13 @@
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
+      const depth = a.priorClicks ? Math.min(a.priorClicks.length, PRIOR_CLICKS_MAX) : 0;
+      if (depth > 0) {
+        const dots = document.createElement("span");
+        dots.className = "depth-dots";
+        dots.textContent = "•".repeat(depth);
+        m.appendChild(dots);
+      }
       const target = resolveTarget(a.elementPath);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
@@ -870,6 +907,7 @@
     popup.className = "popup" + (isReply ? " reply" : "");
     popup._ownsKeydown = ownsKeydown;
     popup.innerHTML = `
+      <div class="trail"></div>
       <div class="label"></div>
       <textarea placeholder="${isReply ? "reply…" : "What should change?"}"></textarea>
       <div class="hint">click outside to save · esc to discard</div>
@@ -879,6 +917,12 @@
       : isEdit
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
+    // Breadcrumb of recent clicks that led to this annotation's state.
+    // For create, tentativeAnnotation isn't captured yet — read clickChain directly.
+    const trail = isCreate ? clickChain.slice() : ((existing && existing.priorClicks) || []);
+    if (trail.length) {
+      popup.querySelector(".trail").textContent = trail.map((c) => c.target).join(" › ");
+    }
     const W = 260, H_EST = 140;
     let px = x + 12, py = y + 12;
     if (px + W > innerWidth - 8) px = innerWidth - W - 8;
@@ -1116,6 +1160,18 @@
   // any scrolling element (window, sidebar, inner overflow container, etc.).
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
+
+  // Capture real clicks (outside the toolbar's shadow root) so each annotation
+  // records the trigger chain that led to its state — overlays, menus, modals.
+  // textContent (vs innerText) avoids forcing layout reflow on every page click.
+  document.addEventListener("mousedown", (e) => {
+    const el = e.target;
+    if (!el || el.nodeType !== 1 || host.contains(el)) return;
+    const tag = el.tagName.toLowerCase();
+    const txt = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    clickChain.push({ target: txt ? `<${tag}> "${txt}"` : `<${tag}>`, ts: Date.now() });
+    if (clickChain.length > PRIOR_CLICKS_MAX) clickChain.shift();
+  }, { passive: true, capture: true });
 
   // Coalesce navigation re-renders via rAF — back/forward + framework replaceState can fire in the same tick.
   let navPending = false;
