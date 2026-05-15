@@ -5,14 +5,41 @@
   if (window.__avis || document.getElementById("__avis_host")) return;
 
   const STORAGE_KEY = "avis:annotations";
+  const CONSOLE_BUFFER_MAX = 200;
+  const CONSOLE_WINDOW_MS = 60_000;
 
   // Fields exposed via window.__avis.summary(). Source of truth — SKILL.md mirrors this list.
   const SUMMARY_FIELDS = [
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
     "element", "elementPath", "text", "nearbyText",
-    "parentContext", "url",
+    "parentContext", "consoleLog", "url",
   ];
+
+  // Ring buffer of recent console.* output, sliced into each annotation at capture.
+  const consoleBuffer = [];
+  function serializeConsoleArg(a) {
+    if (a == null) return String(a);
+    const t = typeof a;
+    if (t === "string") return a;
+    if (t === "number" || t === "boolean") return String(a);
+    if (a instanceof Error) return a.message;
+    try {
+      const s = JSON.stringify(a);
+      return s == null ? "[unserializable]" : (s.length > 200 ? s.slice(0, 200) + "…" : s);
+    } catch { return "[unserializable]"; }
+  }
+  for (const lvl of ["log", "warn", "error", "info", "debug"]) {
+    const orig = console[lvl];
+    if (typeof orig !== "function") continue;
+    console[lvl] = function (...args) {
+      try {
+        consoleBuffer.push({ level: lvl, ts: Date.now(), msg: args.map(serializeConsoleArg).join(" ") });
+        if (consoleBuffer.length > CONSOLE_BUFFER_MAX) consoleBuffer.shift();
+      } catch {}
+      return orig.apply(console, args);
+    };
+  }
   const state = {
     annotations: load(),
     pointing: false,
@@ -181,8 +208,37 @@
     };
   }
 
+  const isUnique = (sel, el) => {
+    try {
+      const matches = document.querySelectorAll(sel);
+      return matches.length === 1 && (!el || matches[0] === el);
+    } catch { return false; }
+  };
+  // CSS.escape() is for IDENT context (class/id), not attribute string values.
+  const cssAttrEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
   function getSelector(el) {
-    if (el.id && /^[a-z][\w-]*$/i.test(el.id)) return "#" + el.id;
+    // Prefer stable test/aria/id attrs; each candidate must uniquely identify el.
+    const testid = el.getAttribute && el.getAttribute("data-testid");
+    if (testid) {
+      const sel = `[data-testid="${cssAttrEscape(testid)}"]`;
+      if (isUnique(sel, el)) return sel;
+    }
+    const test = el.getAttribute && el.getAttribute("data-test");
+    if (test) {
+      const sel = `[data-test="${cssAttrEscape(test)}"]`;
+      if (isUnique(sel, el)) return sel;
+    }
+    if (el.id && /^[a-z][\w-]*$/i.test(el.id)) {
+      const sel = "#" + el.id;
+      if (isUnique(sel, el)) return sel;
+    }
+    const aria = el.getAttribute && el.getAttribute("aria-label");
+    if (aria && aria.length < 80) {
+      const sel = `${el.tagName.toLowerCase()}[aria-label="${cssAttrEscape(aria)}"]`;
+      if (isUnique(sel, el)) return sel;
+    }
+    // Path cascade — short-circuit at the first depth that's already unique.
     const parts = [];
     let cur = el;
     let depth = 0;
@@ -201,6 +257,8 @@
         if (sibs.length > 1) part += `:nth-of-type(${sibs.indexOf(cur) + 1})`;
       }
       parts.unshift(part);
+      const candidate = parts.join(" > ");
+      if (isUnique(candidate, el)) return candidate;
       cur = cur.parentElement;
       depth++;
     }
@@ -296,6 +354,7 @@
       outerHTML: (el.outerHTML || "").slice(0, 1000),
       reactComponents: react ? react.componentPath : null,
       sourceFile: react && react.source ? `${react.source.fileName}:${react.source.lineNumber}` : null,
+      consoleLog: consoleBuffer.filter((e) => e.ts >= Date.now() - CONSOLE_WINDOW_MS),
       url: location.href,
       pageTitle: document.title,
       viewport,

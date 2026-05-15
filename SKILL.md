@@ -10,7 +10,7 @@ A floating toolbar gets injected onto the user's open page. They click `+ annota
 
 ## Annotation shape
 
-Shares field names with the [agentation v1.1 schema](https://www.agentation.com/schema) where concepts overlap. Avis-specific fields: `sourceFile` ("path:line", React dev builds only), `reactComponents` ("<App> <Layout> <NavItem>", any React build), `parentContext` ({element, text, accessibility} of the parent — fallback when the clicked node is unlabeled), `outerHTML` (≤1000 chars), `cssClasses` (full class list), `pageTitle`, `client` ({userAgent, platform, devicePixelRatio, colorScheme}), `source` (`"user"` | `"agent"`), `replyTo` (id | null — flat reply link, no nested threading).
+Shares field names with the [agentation v1.1 schema](https://www.agentation.com/schema) where concepts overlap. Avis-specific fields: `sourceFile` ("path:line", React dev builds only), `reactComponents` ("<App> <Layout> <NavItem>", any React build), `parentContext` ({element, text, accessibility} of the parent — fallback when the clicked node is unlabeled), `consoleLog` ([{level, ts, msg}], `console.*` entries from the ~60s before capture — useful when the user pins something right after the page errored), `outerHTML` (≤1000 chars), `cssClasses` (full class list), `pageTitle`, `client` ({userAgent, platform, devicePixelRatio, colorScheme}), `source` (`"user"` | `"agent"`), `replyTo` (id | null — flat reply link, no nested threading).
 
 **Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `parentContext.text` + `parentContext.element` → `elementPath`.
 
