@@ -6,169 +6,97 @@ allowed-tools: mcp__claude-in-chrome__* Read Bash(lsof:*)
 
 # avis — feedback session
 
-A floating toolbar gets injected onto whatever page the user has open. They click `+ annotate`, point at an element, leave a comment, repeat. When they hit **Done** (or type "done" in chat), you read the annotations back and act on them — and you are responsible for clearing each one as you address it.
+A floating toolbar gets injected onto the user's open page. They click `+ annotate`, point at elements, leave comments. When they type "done" in chat you read the annotations back, edit code, and resolve each one as you address it.
 
-## What gets captured per annotation
+## Annotation shape
 
-Annotation shape aligns with the [agentation v1.1 schema](https://www.agentation.com/schema), plus a few avis extensions:
+Aligned with the [agentation v1.1 schema](https://www.agentation.com/schema). Avis extensions: `sourceFile` ("path:line", React dev builds only), `reactComponents` ("<App> <Layout> <NavItem>", any React build), `parentContext` ({element, text, accessibility} of the parent — fallback when the clicked node is unlabeled), `outerHTML` (≤1000 chars), `cssClasses` (full class list), `pageTitle`, `source` (`"user"` | `"agent"`), `replyTo` (id | null).
 
-```ts
-{
-  // Identity + content
-  id,                // "a<base36>" — unique per annotation
-  comment,           // user's text feedback
-  timestamp,         // Unix ms
+**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `parentContext.text` + `parentContext.element` → `elementPath`.
 
-  // Element identification (agentation v1.1)
-  element,           // tag name, e.g. "button"
-  elementPath,       // CSS selector path
-  cssClasses,        // space-separated class list (avis: full list, not just selector-friendly)
-  text,              // truncated visible text
-  nearbyText,        // visible text from parent — disambiguator
-  parentContext,     // avis: { element, text, accessibility } of the parent — fallback when this element is unlabeled
-  accessibility,     // role / aria-label / name / placeholder / input type
-  computedStyles,    // serialized key CSS properties (display, padding, color, …)
-  outerHTML,         // up to 1000 chars of the element's outerHTML (avis extension)
-
-  // Position (agentation v1.1)
-  x,                 // % of viewport width
-  y,                 // absolute px from document top
-  boundingBox,       // { x, y, width, height } — viewport-relative at click time
-  url,               // page URL
-  viewport,          // { width, height, scrollY, scrollX } at click time
-
-  // avis extensions
-  sourceFile,        // "src/components/NavItem.tsx:42" (dev React only — may be null)
-  reactComponents,   // "<App> <Layout> <NavItem>" (any React build — may be null)
-  pageTitle,         // document.title
-}
-```
-
-**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `parentContext.text` + `parentContext.element` (see step 9) → `elementPath`. If `sourceFile` is present, open that file/line directly. Otherwise grep the repo for `text`, narrowed by `element` and `reactComponents`.
-
-## `window.__avis` API surface
-
-After injection, the toolbar exposes:
+## `window.__avis` API
 
 ```ts
 window.__avis.annotations       // getter, full array across all pages (heavy)
-window.__avis.summary()         // compact projection — same array, only the
-                                // fields needed to plan edits. Prefer this in
-                                // javascript_tool calls to avoid the chrome
-                                // bridge's content filter on large payloads.
+window.__avis.summary()         // compact projection — use this in javascript_tool
+                                // to avoid the chrome bridge's content filter
 window.__avis.pageUrl           // getter, current page URL
-window.__avis.reveal(id)        // smooth-scroll to the annotation + pulse its marker.
-                                // No-ops if the annotation isn't on the current page.
-window.__avis.markWorking(id)   // show a spinner badge on the marker while you work.
-window.__avis.unmarkWorking(id) // clear the spinner (rarely needed — resolve clears it too).
-window.__avis.resolve(id)       // remove one annotation by id once you've addressed it.
-                                // Implicitly clears its working state.
-window.__avis.clear()           // wipe all annotations. Use when the whole batch is done.
+window.__avis.reveal(id)        // smooth-scroll + pulse marker; no-op off-page
+window.__avis.markWorking(id)   // spinner badge on the marker
+window.__avis.unmarkWorking(id) // clear the spinner
+window.__avis.resolve(id)       // remove one annotation; clears working state
+window.__avis.clear()           // wipe all annotations
 window.__avis.add(sel, comment, opts?)
-                                // pin your own comment to an element. sel is a CSS
-                                // selector or live Element. opts.replyTo threads under
-                                // an existing annotation. Returns the new id, or null.
+                                // pin your own comment to an element. opts.replyTo
+                                // threads under an existing annotation. Returns id.
 ```
 
-**Annotation `source`** is `"user"` (default, created via the toolbar) or `"agent"` (created via `__avis.add()`). User markers are blue, agent markers are violet. Clicking an agent marker on the page opens a *reply* popup (yellow user paper, agent's parent comment quoted in lavender) — committing creates a new user annotation with `replyTo` set to the parent id. You can reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
+**Source + replies.** `source` is `"user"` (toolbar) or `"agent"` (`__avis.add()`). User markers are blue, agent markers violet. Clicking an agent marker opens a reply popup (yellow paper, agent's comment quoted in lavender). Committing creates a new user annotation with `replyTo` set. Reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
 
-**Per-page rendering.** Markers and the count only show annotations whose `pageUrl` matches the *current* `location.pathname`. The `annotations` getter still returns everything across all pages — so when the user navigates between pages while you're working, you can still see their full backlog. Don't be surprised if `annotations.length` is larger than the toolbar's count.
+**Per-page rendering.** Markers and the count only show annotations on the current `location.pathname`. The `annotations` getter still returns everything across pages.
 
 ## Steps
 
-> **Latency note.** Each chrome MCP call is a round-trip. Issue independent calls in the same turn (parallel tool use). At minimum, fire `tabs_context_mcp` (step 1), `git status --porcelain toolbar.js`, and `git rev-parse HEAD` (step 2) in the same turn — they don't depend on each other.
+1. **Pick the target tab.** Call `mcp__claude-in-chrome__tabs_context_mcp`. Use a tab already on `localhost` / `127.0.0.1` / `0.0.0.0` if one's open. If the user named a URL, navigate. If the active tab is blank and you're in a code project, detect the dev server via `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` and/or `package.json` framework hints; navigate without asking if either hits. Otherwise ask. Tell the user one line about what you picked so they can redirect.
 
-1. **Pick the target tab — try to skip the question.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. Resolve the URL in this order, only falling through to the next step when the previous misses:
-   - **User named a URL** in chat → navigate there. Use `tabs_create_mcp` for a new tab, or `navigate` on an existing one.
-   - **A tab is already on `localhost` / `127.0.0.1` / `0.0.0.0`** → use it, no ask.
-   - **Active tab is blank / `about:blank` / `chrome://newtab`** and you're working inside a code project → detect the running dev server before asking. Run `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` (Bash). If it returns a port, navigate the blank tab to `http://localhost:<port>` and proceed.
-   - **Combine with project context.** If `package.json` exists in the cwd and lists `next` / `vite` / `astro` / `remix` / `react-scripts` etc. in dependencies, that's stronger evidence than `lsof` alone — proceed without confirmation. Optionally peek at the `dev` / `start` script for an explicit `--port` flag.
-   - **Nothing detected** → ask the user where to point it, suggesting `http://localhost:3000` as the most common default.
+2. **Pick the inject path.** `javascript_tool` is bottlenecked by model output speed: dictating 35 KB of `toolbar.js` as a tool argument costs ~140 s; the CDN loader is ~1 s. Run `git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `git -C ~/.claude/skills/avis rev-parse HEAD` (in parallel with step 1). Clean status → CDN (3a). Dirty → inline (3b) and tell the user: *"Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."*
 
-   Tell the user one line about what you picked ("Opening http://localhost:5173 — looks like Vite is running.") so they can redirect if you guessed wrong.
+3. **Inject.**
 
-2. **Pick the inject path — CDN vs inline.** The bottleneck for `javascript_tool` is the model's output speed: dictating 35 KB of `toolbar.js` as a tool argument costs ~140 s. The CDN loader path is ~1 s. Decide which one to use:
-
-   - Run `Bash: git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `Bash: git -C ~/.claude/skills/avis rev-parse HEAD`.
-   - **Empty status** (clean and pushed) → CDN loader (step 3a).
-   - **Non-empty status** (uncommitted edits) → inline (step 3b). Tell the user: "Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."
-
-3. **Inject the toolbar.**
-
-   **3a. CDN loader (fast).** Substitute the SHA from step 2 into this code, then pass to `mcp__claude-in-chrome__javascript_tool` as the `code` argument:
-
+   **3a. CDN loader (fast).** Substitute `<SHA>` and pass to `javascript_tool`:
    ```js
    (function () {
      if (window.__avis || document.getElementById("__avis_host")) return "already-mounted";
      const x = new XMLHttpRequest();
-     try {
-       x.open("GET", "https://cdn.jsdelivr.net/gh/sryo/avis@<SHA>/toolbar.js", false);
-       x.send();
-     } catch (e) { return "fetch-failed: " + e.message; }
+     try { x.open("GET", "https://cdn.jsdelivr.net/gh/sryo/avis@<SHA>/toolbar.js", false); x.send(); }
+     catch (e) { return "fetch-failed: " + e.message; }
      if (x.status !== 200) return "http-" + x.status;
      try { (new Function(x.responseText))(); } catch (e) { return "exec-failed: " + e.message; }
      return window.__avis ? "mounted" : "mount-failed";
    })();
    ```
+   On any non-`"mounted"`/`"already-mounted"` result, fall through to 3b.
 
-   The tool returns one of: `"mounted"`, `"already-mounted"`, `"fetch-failed: …"`, `"http-404"`, `"exec-failed: …"`, `"mount-failed"`. On any non-`"mounted"`/`"already-mounted"` result, fall through to 3b. (The synchronous XHR is intentional — it makes the inject a single `javascript_tool` call that returns only after the toolbar is mounted.)
+   **3b. Inline (fallback).** `Read` `toolbar.js` next to this SKILL.md, pass directly to `javascript_tool`. Idempotent.
 
-   **3b. Inline inject (fallback, slow).** `Read` `toolbar.js` next to this SKILL.md, pass its contents directly to `javascript_tool` as the `code` argument. The toolbar self-installs and exposes `window.__avis`. It's idempotent.
+4. **Hand off.** Tell the user: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait. Existing annotations in `localStorage` are pending work — leave them. Only call `clear()` if the user explicitly asks ("start fresh", "reset").
 
-4. **Don't auto-clear.** Existing annotations in `localStorage` are pending work — anything you addressed in a prior session was already removed via `resolve()`. Just continue. **Only call `window.__avis.clear()` if the user explicitly asks** ("start fresh," "clear," "reset"). Don't prompt them about it.
+5. **Read annotations back** when the user types `done` / `ready`. Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — returns the compact projection (id, comment, source, replyTo, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url). Only fetch the full `window.__avis.annotations` if you need `computedStyles` / `outerHTML`. If empty, tell the user and stop. Echo one line per annotation so they see what you got.
 
-5. **Hand off to the user.** Tell them: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished. (Copy button on the toolbar dumps the JSON to clipboard if you want it.)"* Then stop and wait.
+6. **Act.** For each annotation:
+   - If `sourceFile` is set, open it and edit at the captured line.
+   - Else grep using `text` + `element`, narrowed by `reactComponents` when present.
+   - **Weak-signal fallback.** If `sourceFile` and `reactComponents` are both null *and* `text` is empty/generic (≤3 chars, "div", "span"), shift the grep to `parentContext.text` + `parentContext.element` — the user often anchored on an unlabeled wrapper. Tell them so future annotations can land on labeled elements.
+   - Group related annotations into one batch where it makes sense.
 
-6. **Wait for the done signal.** Resume when the user types `done` / `ready` / similar in chat. Don't poll the page — Claude Code is turn-based, and any polling burns tokens without buying responsiveness.
-
-7. **Read annotations back.** Run `JSON.stringify(window.__avis.summary())` via `javascript_tool` — it returns the compact projection (id, comment, source, replyTo, sourceFile, reactComponents, element, elementPath, text, nearbyText, parentContext, url), which is enough to plan edits and won't trip the chrome bridge's content filter on large payloads. Parse the JSON. Only fetch the full `window.__avis.annotations` if you genuinely need `computedStyles` / `outerHTML` to reason about visuals. If the array is empty, tell the user and stop.
-
-8. **Echo a compact summary** to the user so they can see what you received. One line per annotation: index, short identifier (sourceFile or selector), the comment. Don't dump the full JSON unless asked.
-
-9. **Act on the annotations.** Treat them as a prioritized list of edits. For each:
-   - If `sourceFile` is set, open it and edit at the captured line region.
-   - Else, grep using `text` + `element` (narrowed by `reactComponents` if present) to find the source, then edit.
-   - **Weak signal fallback.** If `sourceFile` and `reactComponents` are both null *and* `text` is empty / generic (≤ 3 chars, a single word like "div"/"span"), shift the grep to `parentContext.text` + `parentContext.element`. The user often anchored an overlay/wrapper inside a labeled component; the parent has the real name.
-   - Tell the user when you fell back to weak-signal mode so they know future annotations on the same element would be cleaner if anchored on a button/heading instead.
-   - Group related annotations into a single batch of edits where it makes sense.
-
-10. **⚠ REQUIRED — show your work and clean up as you go.**
-    - **Before starting** on an annotation, call `window.__avis.reveal(<id>)` to scroll it into view and pulse the marker. The user gets to watch you work through the list. Skip this if you're processing many annotations as a single batch.
-    - **While working** on an annotation, call `window.__avis.markWorking(<id>)` so a spinner appears on that marker. The user sees in real time which dots you're currently handling.
-    - **After successfully addressing** an annotation, call `window.__avis.resolve(<id>)`. The marker disappears (spinner clears too).
-    - If you address the whole batch in one fast pass, you may call `window.__avis.clear()` at the end instead of individual `resolve()` calls.
-    - **Never leave addressed annotations on the page.** A stale marker is a bug.
-    - If you couldn't address an annotation (couldn't locate the code, ambiguous, needs user clarification), **call `unmarkWorking(<id>)`**, leave the annotation in place, and tell the user explicitly which ones you skipped and why.
-
-11. **Optional toolbar removal.** When the user is fully done, you may run `document.getElementById("__avis_host")?.remove(); delete window.__avis;` to take the toolbar off the page. Leave it otherwise — they may want another round.
+7. **⚠ Show your work, clean up as you go.** For each annotation:
+   - `reveal(<id>)` to scroll the marker into view (skip in batch mode).
+   - `markWorking(<id>)` while working — spinner appears.
+   - `resolve(<id>)` once addressed — marker disappears.
+   - If you skip an annotation (couldn't locate, ambiguous), `unmarkWorking(<id>)` and tell the user explicitly which ones and why.
+   - For a fast batch pass, `clear()` at the end instead of per-id `resolve()`s.
+   - Never leave addressed annotations on the page. A stale marker is a bug.
 
 ## Notes
 
-- **Stacking / overlays.** The toolbar uses Shadow DOM at `z-index: 2147483647`. If the host site has elements *above* that (rare; only sites that explicitly use the max int z-index), the toolbar may be hidden. Tell the user to check.
-- **`sourceFile` is dev-only.** Next.js production, Vite production, etc. strip `_debugSource`. In those cases `componentPath` is your best signal — combined with `text`, it locates components reliably.
-- **Frameworks other than React.** `sourceFile` and `componentPath` will be null. Vue/Svelte/static HTML still get `text` + `nearbyText` + `selector` + `accessibility` — enough for a competent grep.
-- **Non-Chrome browsers.** This skill needs `claude-in-chrome`. Tell the user so and stop.
-- **Persistence.** Annotations live in `localStorage` under `avis:annotations` and survive refreshes. Only `resolve(id)` and `clear()` actually remove them — they're not auto-deleted on Done.
+- **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
+- **Non-Chrome browsers.** This skill needs `claude-in-chrome`. Tell the user and stop.
 
 ## When the user asks you to annotate
 
-The user can flip the direction — instead of pointing things out for you, they ask you to pin comments to elements. Trigger families (not modes — same mechanic, different reason):
+The user can flip the direction — they ask you to pin comments instead of pointing them out. Trigger families (same mechanic, different reason):
 
 - **Critique / review** — "what's wrong here", "critique this design"
-- **Walkthrough / explain** — "annotate how this flow works", "walk me through the page"
-- **Diff / changes** — "show me what changed in the last 10 commits on the page", "annotate yesterday's diffs"
-- **Locate / map** — "where does X live", "highlight components owned by team Y"
+- **Walkthrough / explain** — "annotate how this flow works"
+- **Diff / changes** — "show me what changed in the last 10 commits"
+- **Locate / map** — "where does X live"
 - **Onboarding / docs** — "annotate the key parts for a new dev"
 
-Flow:
-1. Make sure the toolbar is mounted (steps 1-3 of the regular flow).
-2. Pull whatever sources the request needs: `mcp__claude-in-chrome__read_page` / `get_page_text` for page content, `git log` / `git diff` / `Read` for code-side context. Ask for a screenshot if the issue is visual.
-3. For each finding, call `window.__avis.add('<selector>', '<comment>')` via `javascript_tool`. Use a CSS selector specific enough to resolve to one element (prefer `[data-testid]`, stable class names, or `:nth-of-type` paths over generic tags). Batch multiple `add()` calls into one `javascript_tool` payload to save round-trips.
-4. Tell the user how many you placed and stop. They review on the page; they can click a marker to reply, or right-click to dismiss it via the regular flow.
+Flow: mount the toolbar (steps 1–3), pull whatever sources the request needs (`read_page` / `get_page_text`, `git log` / `git diff`, `Read`; ask for a screenshot if the issue is visual), then for each finding call `window.__avis.add('<selector>', '<comment>')` via `javascript_tool`. Use a selector specific enough to resolve to one element (prefer `[data-testid]` or stable classes). Batch multiple `add()` calls into one `javascript_tool` payload. Tell the user how many you placed and stop.
 
-If the user later replies to one of your annotations, you'll see their reply in `summary()` with `replyTo` pointing at your annotation's id. Treat it as a follow-up question, not a new work item. You can reply back with `__avis.add(sel, comment, { replyTo: <theirReplyId> })`.
+If the user replies on one of your annotations, you'll see their reply in `summary()` with `replyTo` pointing at your annotation's id — treat it as a follow-up question. Reply back with `__avis.add(sel, comment, { replyTo: <theirReplyId> })`.
 
-Don't mix this with the user-driven flow in the same session unless explicitly asked — your annotations land in the same backlog as theirs.
+Don't mix this with the user-driven flow in the same session unless asked.
 
 ## When to suggest using `/avis`
 
