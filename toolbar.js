@@ -47,10 +47,24 @@
     pointing: false,
   };
 
-  const workingIds = new Set();
-
   const findAnnotation = (id) => state.annotations.find((a) => a.id === id);
   const findAnnotationIndex = (id) => state.annotations.findIndex((a) => a.id === id);
+
+  // Inline marker update — markWorking/acknowledge run in tight loops; full render() is O(N).
+  function setStatus(id, status) {
+    const a = findAnnotation(id);
+    if (!a) return false;
+    const next = status || undefined;
+    if ((a.status || undefined) === next) return false;
+    if (next) a.status = next; else delete a.status;
+    persist();
+    const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+    if (m) {
+      m.classList.toggle("working", a.status === "working");
+      m.classList.toggle("acknowledged", a.status === "acknowledged");
+    }
+    return true;
+  }
   const resolveTarget = (path) => {
     if (!path) return null;
     try { return document.querySelector(path); } catch { return null; }
@@ -61,9 +75,10 @@
     get pageUrl() { return location.href; },
     // Use this in javascript_tool to dodge the chrome bridge's content filter on large payloads.
     summary() {
-      return state.annotations.map((a) =>
-        Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]]))
-      );
+      return state.annotations.map((a) => ({
+        ...Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]])),
+        status: a.status || "pending",
+      }));
     },
     reveal(id) {
       const a = findAnnotation(id);
@@ -82,29 +97,26 @@
       }
       return true;
     },
-    // Surgical: avoid a full render() — the skill calls markWorking/resolve
-    // per annotation in a tight loop, and render() is O(N) per call.
-    markWorking(id) {
-      if (!findAnnotation(id) || workingIds.has(id)) return false;
-      workingIds.add(id);
-      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
-      if (m) m.classList.add("working");
-      return true;
-    },
-    unmarkWorking(id) {
-      if (!workingIds.delete(id)) return false;
-      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
-      if (m) m.classList.remove("working");
-      return true;
-    },
+    acknowledge(id) { return setStatus(id, "acknowledged"); },
+    markWorking(id)  { return setStatus(id, "working"); },
+    unmarkWorking(id) { return setStatus(id, null); },
     resolve(id) {
       const i = findAnnotationIndex(id);
       if (i === -1) return false;
       state.annotations.splice(i, 1);
-      workingIds.delete(id);
       persist();
       render();
       return true;
+    },
+    dismiss(id, reason) {
+      const i = findAnnotationIndex(id);
+      if (i === -1) return false;
+      const a = state.annotations[i];
+      state.annotations.splice(i, 1);
+      persist();
+      render();
+      console.log("[avis] dismissed " + id + (reason ? ": " + reason : ""));
+      return { id, comment: a.comment, reason: reason || null };
     },
     add(selectorOrEl, comment, opts = {}) {
       if (!comment) return null;
@@ -118,7 +130,6 @@
     },
     clear() {
       state.annotations = [];
-      workingIds.clear();
       persist();
       render();
     },
@@ -613,6 +624,16 @@
         animation: avis-spin .8s linear infinite;
         pointer-events: none;
       }
+      .marker.acknowledged::after {
+        content: "";
+        position: absolute;
+        top: -2px; right: -2px;
+        width: 7px; height: 7px;
+        background: #fbbf24;
+        border-radius: 50%;
+        box-shadow: 0 0 0 1px rgba(0,0,0,.25);
+        pointer-events: none;
+      }
       .marker.revealing {
         animation: avis-reveal .8s ease;
       }
@@ -674,7 +695,8 @@
       m.className = "marker";
       if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
-      if (workingIds.has(a.id)) m.classList.add("working");
+      if (a.status === "working") m.classList.add("working");
+      if (a.status === "acknowledged") m.classList.add("acknowledged");
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
@@ -930,7 +952,6 @@
         if (i !== -1) {
           if (!text) {
             state.annotations.splice(i, 1);
-            workingIds.delete(existing.id);
           } else if (text !== existing.comment) {
             state.annotations[i] = { ...state.annotations[i], comment: text };
           }
