@@ -70,6 +70,15 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 ## Steps
 
+> **Latency note.** Each chrome MCP call is a round-trip. Issue independent calls in the same turn (parallel tool use). At minimum, fire `tabs_context_mcp` (step 1), `git status --porcelain toolbar.js`, and `git rev-parse HEAD` (step 2) in the same turn — they don't depend on each other.
+
+> **Debug timing (temporary).** Load latency is currently being investigated. While debugging, capture three timestamps via `Bash: date +%s` (whole-second epoch — `%N` is GNU-only, not on macOS). Echo them in chat:
+> - `t0` — at the very start of step 1 (run in parallel with `tabs_context_mcp` and `Read`).
+> - `t1` — immediately before the `javascript_tool` inject in step 3.
+> - `t2` — immediately after the inject returns.
+>
+> In your handoff message, include one line: `timing: setup=<t1-t0>s, inject=<t2-t1>s, total=<t2-t0>s`. Once we've identified the dominant span, remove this block.
+
 1. **Pick the target tab — try to skip the question.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. Resolve the URL in this order, only falling through to the next step when the previous misses:
    - **User named a URL** in chat → navigate there. Use `tabs_create_mcp` for a new tab, or `navigate` on an existing one.
    - **A tab is already on `localhost` / `127.0.0.1` / `0.0.0.0`** → use it, no ask.
@@ -79,9 +88,33 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
    Tell the user one line about what you picked ("Opening http://localhost:5173 — looks like Vite is running.") so they can redirect if you guessed wrong.
 
-2. **Load the toolbar source.** Use `Read` on `toolbar.js` next to this SKILL.md. The file is ~600 LOC of vanilla JS, no deps.
+2. **Pick the inject path — CDN vs inline.** The bottleneck for `javascript_tool` is the model's output speed: dictating 35 KB of `toolbar.js` as a tool argument costs ~140 s. The CDN loader path is ~1 s. Decide which one to use:
 
-3. **Inject.** Pass the file contents to `mcp__claude-in-chrome__javascript_tool` as the `code` argument. The toolbar self-installs and exposes `window.__avis`. It's idempotent — re-running does nothing.
+   - In parallel with step 1, run `Bash: git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `Bash: git -C ~/.claude/skills/avis rev-parse HEAD`.
+   - **If the status is empty** (toolbar.js is clean and pushed) → use the CDN loader (step 3a).
+   - **If the status is non-empty** (uncommitted edits to toolbar.js) → fall back to inline `Read` + inject (step 3b). Tell the user one line: "Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."
+
+3. **Inject the toolbar.**
+
+   **3a. CDN loader (fast).** Substitute the SHA from step 2 into this code, then pass to `mcp__claude-in-chrome__javascript_tool` as the `code` argument:
+
+   ```js
+   (function () {
+     if (window.__avis || document.getElementById("__avis_host")) return "already-mounted";
+     const x = new XMLHttpRequest();
+     try {
+       x.open("GET", "https://cdn.jsdelivr.net/gh/sryo/avis@<SHA>/toolbar.js", false);
+       x.send();
+     } catch (e) { return "fetch-failed: " + e.message; }
+     if (x.status !== 200) return "http-" + x.status;
+     try { (new Function(x.responseText))(); } catch (e) { return "exec-failed: " + e.message; }
+     return window.__avis ? "mounted" : "mount-failed";
+   })();
+   ```
+
+   The tool returns one of: `"mounted"`, `"already-mounted"`, `"fetch-failed: …"`, `"http-404"`, `"exec-failed: …"`, `"mount-failed"`. On any non-`"mounted"`/`"already-mounted"` result, fall through to 3b. (The synchronous XHR is intentional — it makes the inject a single `javascript_tool` call that returns only after the toolbar is mounted.)
+
+   **3b. Inline inject (fallback, slow).** `Read` `toolbar.js` next to this SKILL.md, pass its contents directly to `javascript_tool` as the `code` argument. The toolbar self-installs and exposes `window.__avis`. It's idempotent.
 
 4. **Don't auto-clear.** Existing annotations in `localStorage` are pending work — anything you addressed in a prior session was already removed via `resolve()`. Just continue. **Only call `window.__avis.clear()` if the user explicitly asks** ("start fresh," "clear," "reset"). Don't prompt them about it.
 
@@ -100,7 +133,7 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
    - Tell the user when you fell back to weak-signal mode so they know future annotations on the same element would be cleaner if anchored on a button/heading instead.
    - Group related annotations into a single batch of edits where it makes sense.
 
-10. **⚠ REQUIRED — show your work and clean up as you go.** This is the contract you owe the user.
+10. **⚠ REQUIRED — show your work and clean up as you go.**
     - **Before starting** on an annotation, call `window.__avis.reveal(<id>)` to scroll it into view and pulse the marker. The user gets to watch you work through the list. Skip this if you're processing many annotations as a single batch.
     - **While working** on an annotation, call `window.__avis.markWorking(<id>)` so a spinner appears on that marker. The user sees in real time which dots you're currently handling.
     - **After successfully addressing** an annotation, call `window.__avis.resolve(<id>)`. The marker disappears (spinner clears too).

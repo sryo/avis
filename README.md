@@ -33,7 +33,3 @@ For each annotation, in order of how useful it is to an agent:
 7. **Viewport rect + URL** — context
 
 If `sourceFile` is present, Claude opens it directly. Otherwise it greps your repo using the captured text and tag.
-
-## Why it works on any project
-
-`toolbar.js` is vanilla JavaScript injected via `javascript_tool` into your active tab. The host site doesn't need a package, a script tag, or any config. Next.js dev server, static HTML, a Webflow draft, production at example.com. If Chrome can load it, `/avis` can annotate it.

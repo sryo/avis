@@ -103,7 +103,7 @@
   }
 
   function load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(migrate); }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
     catch { return []; }
   }
   function persist() {
@@ -115,7 +115,7 @@
 
   function getFiberKey(el) {
     for (const k in el) {
-      if (k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$")) return k;
+      if (k.startsWith("__reactFiber$")) return k;
     }
     return null;
   }
@@ -293,28 +293,6 @@
     };
   }
 
-  // Migrate older localStorage entries (rect / pageUrl / tag / selector …) to
-  // the agentation v1.1 names so the rest of the code only deals with one shape.
-  function migrate(a) {
-    if (!a || a.boundingBox) return a;
-    const v = a.viewport || { width: 0, height: 0, scrollY: 0, scrollX: 0 };
-    const r = a.rect || { x: 0, y: 0, width: 0, height: 0 };
-    return {
-      ...a,
-      element: a.element || a.tag,
-      elementPath: a.elementPath || a.selector,
-      reactComponents: a.reactComponents || a.componentPath,
-      url: a.url || a.pageUrl,
-      boundingBox: a.boundingBox || r,
-      x: a.x !== undefined ? a.x : (v.width ? Math.round((r.x / v.width) * 100) : 0),
-      y: a.y !== undefined ? a.y : Math.round(r.y + (v.scrollY || 0)),
-      cssClasses: a.cssClasses || "",
-      computedStyles: a.computedStyles || "",
-      outerHTML: a.outerHTML || "",
-      timestamp: a.timestamp || (a.createdAt ? new Date(a.createdAt).getTime() : Date.now()),
-    };
-  }
-
   // ---------- UI (Shadow DOM for style isolation) ----------
 
   const host = document.createElement("div");
@@ -386,12 +364,9 @@
         transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
       }
       .btn[data-act=point]:hover {
-        transform: rotate(-3deg) translateY(-1px);
+        transform: rotate(-3deg) translateY(-3px);
         background: linear-gradient(180deg, #fff7a8 0%, #faea84 100%);
         box-shadow: 0 5px 10px rgba(0,0,0,.22);
-      }
-      .annotate-stack:hover::before {
-        transform: rotate(-7deg) translate(-4px, 3px);
       }
       .btn[data-act=point]::after {
         content: "";
@@ -419,7 +394,6 @@
       }
       .btn[data-act=point].active::after { display: none; }
 
-      .count { padding: 0 6px; opacity: .65; font-variant-numeric: tabular-nums; }
       .brand {
         font-weight: 600; letter-spacing: .02em;
         padding: 0 6px 0 8px; opacity: .85;
@@ -427,6 +401,18 @@
       }
       .brand:hover { opacity: 1; }
       .btn.copied { background: #16a34a; }
+
+      .copy-stack { display: inline-grid; }
+      .copy-stack > .copy-state {
+        grid-area: 1 / 1;
+        display: inline-flex; align-items: center; gap: 6px;
+        justify-self: center;
+      }
+      .copy-stack > .copy-state.copied { visibility: hidden; }
+      .btn.copied .copy-stack > .copy-state.normal { visibility: hidden; }
+      .btn.copied .copy-stack > .copy-state.copied { visibility: visible; }
+      .copy-count { font-variant-numeric: tabular-nums; opacity: .75; }
+      .copy-count:empty { display: none; }
 
       .overlay {
         position: fixed; inset: 0;
@@ -480,7 +466,7 @@
       .popup.dragging .label { cursor: grabbing; }
       .popup textarea {
         width: 100%; background: transparent;
-        border: 0; border-bottom: 1px dashed rgba(0,0,0,.18);
+        border: 0;
         padding: 4px 0; font: inherit; resize: none;
         field-sizing: content;
         min-height: 36px; max-height: 240px;
@@ -488,7 +474,6 @@
         caret-color: #1a1a0e;
         overflow-y: auto;
       }
-      .popup textarea:focus { border-bottom-color: rgba(0,0,0,.45); border-bottom-style: solid; }
       .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
 
       .marker {
@@ -537,15 +522,19 @@
       <span class="annotate-stack">
         <button class="btn" data-act="point">+ annotate</button>
       </span>
-      <span class="count">0</span>
-      <button class="btn primary" data-act="copy">Copy</button>
+      <button class="btn primary" data-act="copy">
+        <span class="copy-stack">
+          <span class="copy-state normal">copy<span class="copy-count"></span></span>
+          <span class="copy-state copied">✓ copied</span>
+        </span>
+      </button>
     </div>
     <div class="marker-layer"></div>
   `;
 
   const pointBtn = shadow.querySelector("[data-act=point]");
   const copyBtn = shadow.querySelector("[data-act=copy]");
-  const countSpan = shadow.querySelector(".count");
+  const copyCount = shadow.querySelector(".copy-count");
   const markerLayer = shadow.querySelector(".marker-layer");
   let tentativeAnnotation = null;
   let editingId = null;
@@ -558,9 +547,9 @@
     const currentPage = currentPageAnnotations();
     const visibleCount = currentPage.length + (tentativeAnnotation ? 1 : 0);
     const hasAnnotations = currentPage.length > 0;
-    countSpan.textContent = String(visibleCount);
+    copyCount.textContent = visibleCount > 0 ? String(visibleCount) : "";
     pointBtn.classList.toggle("active", state.pointing);
-    pointBtn.textContent = state.pointing ? "Cancel" : "+ annotate";
+    pointBtn.textContent = state.pointing ? "cancel" : "+ annotate";
     copyBtn.disabled = !hasAnnotations;
     renderMarkers();
   }
@@ -571,6 +560,8 @@
     const list = tentativeAnnotation
       ? [...currentPage, tentativeAnnotation]
       : currentPage;
+    // Stack offset for markers anchored to the same target element.
+    const stackByEl = new Map();
     list.forEach((a, i) => {
       const m = document.createElement("div");
       m.className = "marker";
@@ -578,12 +569,22 @@
       if (workingIds.has(a.id)) m.classList.add("working");
       m.textContent = String(i + 1);
       m.title = a.comment;
-      m.dataset.absX = String(a.boundingBox.x + a.viewport.scrollX + a.boundingBox.width - 11);
-      m.dataset.absY = String(a.boundingBox.y + a.viewport.scrollY - 11);
       m.dataset.annotationId = a.id;
+      let target = null;
+      if (a.elementPath) {
+        try { target = document.querySelector(a.elementPath); } catch {}
+      }
+      m._targetEl = target;
+      m._elementPath = a.elementPath || null;
+      if (target) {
+        const idx = stackByEl.get(target) || 0;
+        m._stackIndex = idx;
+        stackByEl.set(target, idx + 1);
+      } else {
+        m._stackIndex = 0;
+      }
       markerLayer.appendChild(m);
     });
-    refreshMarkerCoords();
     positionMarkers();
     // If a drag is in flight when render fires (e.g. the skill called
     // markWorking on another annotation), rebind dragState.marker to the
@@ -597,66 +598,41 @@
     }
   }
 
-  // Re-resolve each marker's absolute page coords from the live DOM. Expensive
-  // (one querySelector + reflow per element), so only called from layout events
-  // (resize, render) — NOT scroll, which can fire 60×/sec. After natural
-  // positioning, any markers that would visually overlap are bumped downward.
-  function refreshMarkerCoords() {
-    const markerEls = Array.from(markerLayer.querySelectorAll(".marker"));
-    const byPath = new Map();
-    markerEls.forEach((m) => {
-      const a = m.dataset.annotationId ? findAnnotation(m.dataset.annotationId) : null;
-      if (!a || !a.elementPath) return;
-      if (!byPath.has(a.elementPath)) byPath.set(a.elementPath, []);
-      byPath.get(a.elementPath).push(m);
-    });
-    byPath.forEach((markers, path) => {
-      try {
-        const el = document.querySelector(path);
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 && r.height <= 0) return;
-        const baseX = Math.round(r.left + window.scrollX + r.width - 11);
-        const baseY = Math.round(r.top + window.scrollY - 11);
-        markers.forEach((m, idx) => {
-          m.dataset.absX = String(baseX);
-          m.dataset.absY = String(baseY + idx * 26);
-        });
-      } catch {}
-    });
-
-    // Collision pass: bump any marker that overlaps another. 22px marker +
-    // small breathing gap. Cap iterations so a pathological page can't hang us.
-    const HIT = 24;
-    const BUMP = 26;
-    for (let pass = 0; pass < 8; pass++) {
-      markerEls.sort((a, b) => Number(a.dataset.absY) - Number(b.dataset.absY));
-      let collided = false;
-      for (let i = 0; i < markerEls.length; i++) {
-        const ax = Number(markerEls[i].dataset.absX);
-        const ay = Number(markerEls[i].dataset.absY);
-        for (let j = i + 1; j < markerEls.length; j++) {
-          const bx = Number(markerEls[j].dataset.absX);
-          const by = Number(markerEls[j].dataset.absY);
-          if (Math.abs(bx - ax) < HIT && Math.abs(by - ay) < HIT) {
-            markerEls[j].dataset.absY = String(ay + BUMP);
-            collided = true;
+  // Recompute viewport-relative coords for every marker from its target's live
+  // rect. Markers are position:fixed, so the rect's top/right ARE the coords we
+  // want — no scroll math needed. rAF-batched so a fast scroll firing 60×/sec
+  // across many markers does one read-pass then one write-pass.
+  let positionPending = false;
+  function positionMarkers() {
+    if (positionPending) return;
+    positionPending = true;
+    requestAnimationFrame(() => {
+      positionPending = false;
+      const markers = markerLayer.querySelectorAll(".marker");
+      const reads = [];
+      markers.forEach((m) => {
+        // Re-resolve if the host page (React, etc.) replaced the cached node.
+        // Detached nodes return a zero rect, which would silently freeze the
+        // marker in place.
+        if (!m._targetEl || !m._targetEl.isConnected) {
+          if (m._elementPath) {
+            try { m._targetEl = document.querySelector(m._elementPath); } catch { m._targetEl = null; }
           }
         }
-      }
-      if (!collided) break;
-    }
-  }
-
-  // Cheap path: just translate stored absolute coords by current scroll.
-  function positionMarkers() {
-    const sy = window.scrollY;
-    const sx = window.scrollX;
-    markerLayer.querySelectorAll(".marker").forEach((m) => {
-      const left = (Number(m.dataset.absX) - sx) + "px";
-      const top = (Number(m.dataset.absY) - sy) + "px";
-      if (m.style.left !== left) m.style.left = left;
-      if (m.style.top !== top) m.style.top = top;
+        const el = m._targetEl;
+        if (!el) { reads.push(null); return; }
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 && r.height <= 0) { reads.push(null); return; }
+        reads.push(r);
+      });
+      markers.forEach((m, i) => {
+        const r = reads[i];
+        if (!r) return;
+        const left = Math.round(r.right - 11) + "px";
+        const top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
+        if (m.style.left !== left) m.style.left = left;
+        if (m.style.top !== top) m.style.top = top;
+      });
     });
   }
 
@@ -672,10 +648,6 @@
     if (overlay) overlay.style.pointerEvents = ov || "auto";
     if (hideOutline && outline) outline.style.display = "block";
     return el;
-  }
-
-  function elementAtClick(clientX, clientY) {
-    return elementBeneathPoint(clientX, clientY);
   }
 
   function enterPointMode() {
@@ -718,7 +690,7 @@
   }
 
   function onHover(e) {
-    const el = elementAtClick(e.clientX, e.clientY);
+    const el = elementBeneathPoint(e.clientX, e.clientY);
     if (!el) {
       if (lastHoverEl !== null) { outline.style.display = "none"; lastHoverEl = null; }
       return;
@@ -736,7 +708,7 @@
   function onPick(e) {
     e.preventDefault();
     e.stopPropagation();
-    const el = elementAtClick(e.clientX, e.clientY);
+    const el = elementBeneathPoint(e.clientX, e.clientY);
     if (!el) return;
     openPopup(el, e.clientX, e.clientY);
   }
@@ -746,8 +718,13 @@
     if (outline) outline.style.display = "none";
     if (overlay) overlay.style.pointerEvents = "none";
     const isEdit = !!existing;
+    // Edit path skips point mode, so the global Esc listener isn't installed
+    // yet. Install it here; closePopup removes it only if it owned it.
+    const ownsKeydown = !state.pointing;
+    if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
     popup = document.createElement("div");
     popup.className = "popup";
+    popup._ownsKeydown = ownsKeydown;
     popup.innerHTML = `
       <div class="label"></div>
       <textarea placeholder="What should change?"></textarea>
@@ -851,6 +828,7 @@
   function closePopup() {
     if (popup) {
       if (popup._onOutside) document.removeEventListener("pointerdown", popup._onOutside, true);
+      if (popup._ownsKeydown) document.removeEventListener("keydown", onKeydown, true);
       popup.remove();
       popup = null;
     }
@@ -968,27 +946,15 @@
   copyBtn.addEventListener("click", async () => {
     if (state.annotations.length === 0) return;
     const json = JSON.stringify(state.annotations, null, 2);
-    try {
-      await navigator.clipboard.writeText(json);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = json;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-    }
-    copyBtn.textContent = "✓ copied";
+    await navigator.clipboard.writeText(json);
     copyBtn.classList.add("copied");
-    setTimeout(() => {
-      copyBtn.classList.remove("copied");
-      copyBtn.textContent = "Copy";
-    }, 1400);
+    setTimeout(() => copyBtn.classList.remove("copied"), 1400);
   });
 
-  window.addEventListener("scroll", positionMarkers, { passive: true });
-  window.addEventListener("resize", () => { refreshMarkerCoords(); positionMarkers(); });
+  // Capture-phase: scroll events don't bubble, but capture catches them from
+  // any scrolling element (window, sidebar, inner overflow container, etc.).
+  document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
+  window.addEventListener("resize", positionMarkers);
 
   // Re-render on navigation (popstate + SPA pushState/replaceState). Coalesce
   // via rAF so back/forward + framework replaceState in the same tick don't
