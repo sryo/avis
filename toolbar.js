@@ -1,24 +1,12 @@
-// avis — feedback toolbar. Injected onto any page; captures point-and-comment
-// annotations and exposes them on window.__avis for Claude Code to read back.
-//
-// Per annotation we capture, in order of usefulness to an AI agent:
-//   1. React fiber _debugSource  -> exact src/file.tsx:line  (dev builds only)
-//   2. React component path      -> <App> <Layout> <NavItem>  (any React build)
-//   3. Visible text + tag        -> works on any framework / vanilla HTML
-//   4. Accessibility name/role   -> strong signal when text is empty
-//   5. Nearby text               -> disambiguates ("button next to 'Forgot'")
-//   6. CSS path                  -> last-resort selector
-//   7. Viewport rect + URL       -> screenshot / context
+// avis — feedback toolbar. Injected onto any page; exposes annotations on
+// window.__avis for an AI agent to read back, edit, and reply to.
 
 (function () {
   if (window.__avis || document.getElementById("__avis_host")) return;
 
   const STORAGE_KEY = "avis:annotations";
 
-  // Fields exposed via window.__avis.summary(). Change here is the source of
-  // truth — SKILL.md mirrors this list. Excluded (only on .annotations):
-  // outerHTML, computedStyles, cssClasses, accessibility, boundingBox,
-  // viewport, x, y, timestamp, pageTitle.
+  // Fields exposed via window.__avis.summary(). Source of truth — SKILL.md mirrors this list.
   const SUMMARY_FIELDS = [
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
@@ -40,7 +28,6 @@
   };
 
   window.__avis = {
-    // Full array across all pages — Claude can see cross-page work.
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
     // Compact projection — same array, only the SUMMARY_FIELDS. Use this in
@@ -92,8 +79,6 @@
       render();
       return true;
     },
-    // Agent-authored annotation. Pass a CSS selector or live Element, plus
-    // optional { replyTo } to thread under an existing annotation.
     add(selectorOrEl, comment, opts = {}) {
       if (!comment) return null;
       const el = typeof selectorOrEl === "string" ? resolveTarget(selectorOrEl) : selectorOrEl;
@@ -131,8 +116,6 @@
     catch {}
   }
 
-  // ---------- React fiber walk ----------
-
   function getFiberKey(el) {
     for (const k in el) {
       if (k.startsWith("__reactFiber$")) return k;
@@ -154,9 +137,8 @@
   }
 
   function getReactInfo(el) {
-    // Walk up the DOM until we find an ancestor with a React fiber.
-    // Server-rendered nodes (Next.js RSC, Astro islands, etc.) have no fiber;
-    // their nearest hydrated parent does.
+    // Walk up the DOM until we find a React fiber. SSR nodes (Next.js RSC,
+    // Astro islands, etc.) have no fiber — their nearest hydrated parent does.
     let node = el;
     let key = getFiberKey(node);
     while (!key && node && node.parentElement) {
@@ -193,8 +175,6 @@
         : null,
     };
   }
-
-  // ---------- Element identification ----------
 
   function getSelector(el) {
     if (el.id && /^[a-z][\w-]*$/i.test(el.id)) return "#" + el.id;
@@ -258,7 +238,6 @@
     return t ? `<${tag}> "${t}"` : `<${tag}>`;
   }
 
-  // Curated subset of computed styles worth capturing for visual reasoning.
   const RICH_STYLE_PROPS = [
     "display", "position", "flex-direction", "justify-content", "align-items", "gap",
     "padding", "margin", "color", "background-color", "background-image",
@@ -276,8 +255,6 @@
       .join("; ");
   }
 
-  // Annotation shape: aligns with agentation v1.1 schema where it overlaps,
-  // plus our extension fields (sourceFile, viewport, pageTitle).
   function capture(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
     const react = getReactInfo(el);
@@ -315,12 +292,11 @@
     };
   }
 
-  // ---------- UI (Shadow DOM for style isolation) ----------
-
   const host = document.createElement("div");
   host.id = "__avis_host";
   host.style.cssText = "all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;";
   document.documentElement.appendChild(host);
+  // Shadow DOM for style isolation.
   const shadow = host.attachShadow({ mode: "open" });
 
   shadow.innerHTML = `
@@ -656,8 +632,7 @@
     });
   }
 
-  // Run document.elementFromPoint with our chrome (host + overlay + outline)
-  // temporarily transparent so the call sees the real page underneath.
+  // Hide our chrome so elementFromPoint sees the host page underneath.
   function elementBeneathPoint(clientX, clientY, hideOutline = true) {
     const ov = overlay && overlay.style.pointerEvents;
     if (overlay) overlay.style.pointerEvents = "none";
@@ -782,7 +757,6 @@
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
 
-    // Drag the popup by its label.
     const labelEl = popup.querySelector(".label");
     let drag = null;
     labelEl.addEventListener("mousedown", (e) => {
@@ -815,9 +789,7 @@
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
     });
 
-    // Click anywhere outside the popup → commit (save / delete / no-op based on content).
-    // Marker clicks are handled below in markerLayer's mousedown — let that
-    // path commit so it can also start a drag on the same gesture.
+    // Marker clicks are handled by markerLayer's mousedown — let that path commit so the same gesture can also start a drag.
     function onOutside(e) {
       if (!popup) return;
       const path = e.composedPath();
@@ -862,8 +834,6 @@
     tentativeAnnotation = null;
     editingId = null;
   }
-
-  // ---------- Marker click (edit) + drag (re-anchor) ----------
 
   let dragState = null;
 
@@ -935,7 +905,6 @@
     if (dropOutline) dropOutline.remove();
 
     if (!moved) {
-      // Click — open edit popup at the marker's position.
       const ann = findAnnotation(id);
       if (!ann) return;
       const r = marker.getBoundingClientRect();
@@ -943,13 +912,12 @@
       return;
     }
 
-    // Drag-drop — find the element under the cursor, ignoring our own chrome.
     marker.style.pointerEvents = "none";
     const target = elementBeneathPoint(e.clientX, e.clientY, false);
     marker.style.pointerEvents = "auto";
 
     if (!target || target === host) {
-      render(); // snap back to original position
+      render();
       return;
     }
 
@@ -963,8 +931,6 @@
     persist();
     render();
   }
-
-  // ---------- Wire toolbar buttons ----------
 
   pointBtn.addEventListener("click", () => {
     state.pointing ? exitPointMode() : enterPointMode();
@@ -983,9 +949,7 @@
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
 
-  // Re-render on navigation (popstate + SPA pushState/replaceState). Coalesce
-  // via rAF so back/forward + framework replaceState in the same tick don't
-  // trigger a double render.
+  // Coalesce navigation re-renders via rAF — back/forward + framework replaceState can fire in the same tick.
   let navPending = false;
   function scheduleRender() {
     if (navPending) return;
