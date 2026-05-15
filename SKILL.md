@@ -118,7 +118,7 @@ The user can flip the direction — they ask you to pin comments instead of poin
 - **Locate / map** — "where does X live"
 - **Onboarding / docs** — "annotate the key parts for a new dev"
 
-Flow: mount the toolbar (steps 1–3), pull whatever sources the request needs (`get_text` / `get_html`, `git log` / `git diff`, `Read`; ask for a screenshot if the issue is visual), then for each finding call `window.__avis.add('<selector>', '<comment>')` via `eval_js`. Use a selector specific enough to resolve to one element (prefer `[data-testid]` or stable classes). Batch multiple `add()` calls into one `eval_js` payload. Tell the user how many you placed and stop.
+Flow: mount the toolbar (steps 1–3), pull whatever sources the request needs (`get_text` / `get_html`, `git log` / `git diff`, `Read`; ask for a screenshot if the issue is visual), then for each finding call `window.__avis.add('<selector>', '<comment>')` via `eval_js`. Use a selector specific enough to resolve to one element (prefer `[data-testid]` or stable classes). Batch multiple `add()` calls into one `eval_js` payload. If `add()` returns null (selector didn't match — hover-only state, dynamic overlay, anything visible in the screenshot but not in the static DOM), include the finding in your summary anyway with a short description of what you saw and roughly where. Tell the user how many were placed plus any that couldn't be anchored, and stop.
 
 If the user replies on one of your annotations, you'll see their reply in `summary()` with `replyTo` pointing at your annotation's id — treat it as a follow-up question. Reply back with `__avis.add(sel, comment, { replyTo: <theirReplyId> })`.
 
