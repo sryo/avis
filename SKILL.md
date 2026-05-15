@@ -72,13 +72,6 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 > **Latency note.** Each chrome MCP call is a round-trip. Issue independent calls in the same turn (parallel tool use). At minimum, fire `tabs_context_mcp` (step 1), `git status --porcelain toolbar.js`, and `git rev-parse HEAD` (step 2) in the same turn — they don't depend on each other.
 
-> **Debug timing (temporary).** Load latency is currently being investigated. While debugging, capture three timestamps via `Bash: date +%s` (whole-second epoch — `%N` is GNU-only, not on macOS). Echo them in chat:
-> - `t0` — at the very start of step 1 (run in parallel with `tabs_context_mcp` and `Read`).
-> - `t1` — immediately before the `javascript_tool` inject in step 3.
-> - `t2` — immediately after the inject returns.
->
-> In your handoff message, include one line: `timing: setup=<t1-t0>s, inject=<t2-t1>s, total=<t2-t0>s`. Once we've identified the dominant span, remove this block.
-
 1. **Pick the target tab — try to skip the question.** Call `mcp__claude-in-chrome__tabs_context_mcp` to list open tabs. Resolve the URL in this order, only falling through to the next step when the previous misses:
    - **User named a URL** in chat → navigate there. Use `tabs_create_mcp` for a new tab, or `navigate` on an existing one.
    - **A tab is already on `localhost` / `127.0.0.1` / `0.0.0.0`** → use it, no ask.
