@@ -1,7 +1,5 @@
 # avis
 
-Agent-facing notes. Runtime instructions live in [SKILL.md](./SKILL.md).
-
 ## Layout
 
 ```
