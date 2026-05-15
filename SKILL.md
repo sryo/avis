@@ -83,9 +83,9 @@ window.__avis.clear()           // wipe all annotations. Use when the whole batc
 
 2. **Pick the inject path — CDN vs inline.** The bottleneck for `javascript_tool` is the model's output speed: dictating 35 KB of `toolbar.js` as a tool argument costs ~140 s. The CDN loader path is ~1 s. Decide which one to use:
 
-   - In parallel with step 1, run `Bash: git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `Bash: git -C ~/.claude/skills/avis rev-parse HEAD`.
-   - **If the status is empty** (toolbar.js is clean and pushed) → use the CDN loader (step 3a).
-   - **If the status is non-empty** (uncommitted edits to toolbar.js) → fall back to inline `Read` + inject (step 3b). Tell the user one line: "Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."
+   - Run `Bash: git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `Bash: git -C ~/.claude/skills/avis rev-parse HEAD`.
+   - **Empty status** (clean and pushed) → CDN loader (step 3a).
+   - **Non-empty status** (uncommitted edits) → inline (step 3b). Tell the user: "Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."
 
 3. **Inject the toolbar.**
 

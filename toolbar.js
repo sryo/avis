@@ -33,6 +33,10 @@
 
   const findAnnotation = (id) => state.annotations.find((a) => a.id === id);
   const findAnnotationIndex = (id) => state.annotations.findIndex((a) => a.id === id);
+  const resolveTarget = (path) => {
+    if (!path) return null;
+    try { return document.querySelector(path); } catch { return null; }
+  };
 
   window.__avis = {
     // Full array across all pages — Claude can see cross-page work.
@@ -46,13 +50,16 @@
         Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]]))
       );
     },
-    // Smooth-scroll to an annotation and pulse its marker. Returns false if
-    // the annotation isn't on the current page (no cross-page navigation).
     reveal(id) {
       const a = findAnnotation(id);
       if (!a || !isCurrentPage(a)) return false;
-      const absY = a.boundingBox.y + a.viewport.scrollY;
-      window.scrollTo({ top: Math.max(0, absY - 100), behavior: "smooth" });
+      const el = resolveTarget(a.elementPath);
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else {
+        const absY = a.boundingBox.y + a.viewport.scrollY;
+        window.scrollTo({ top: Math.max(0, absY - 100), behavior: "smooth" });
+      }
       const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
       if (m) {
         m.classList.add("revealing");
@@ -60,20 +67,21 @@
       }
       return true;
     },
-    // Visually mark an annotation as in-progress (spinner badge on the marker).
+    // Surgical: avoid a full render() — the skill calls markWorking/resolve
+    // per annotation in a tight loop, and render() is O(N) per call.
     markWorking(id) {
       if (!findAnnotation(id) || workingIds.has(id)) return false;
       workingIds.add(id);
-      render();
+      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      if (m) m.classList.add("working");
       return true;
     },
     unmarkWorking(id) {
       if (!workingIds.delete(id)) return false;
-      render();
+      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      if (m) m.classList.remove("working");
       return true;
     },
-    // Remove a single annotation by id once Claude has addressed it.
-    // Returns true if removed, false if id wasn't found.
     resolve(id) {
       const i = findAnnotationIndex(id);
       if (i === -1) return false;
@@ -83,7 +91,6 @@
       render();
       return true;
     },
-    // Wipe everything. Call this when the whole batch has been handled.
     clear() {
       state.annotations = [];
       workingIds.clear();
@@ -560,7 +567,6 @@
     const list = tentativeAnnotation
       ? [...currentPage, tentativeAnnotation]
       : currentPage;
-    // Stack offset for markers anchored to the same target element.
     const stackByEl = new Map();
     list.forEach((a, i) => {
       const m = document.createElement("div");
@@ -570,25 +576,16 @@
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
-      let target = null;
-      if (a.elementPath) {
-        try { target = document.querySelector(a.elementPath); } catch {}
-      }
+      const target = resolveTarget(a.elementPath);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
-      if (target) {
-        const idx = stackByEl.get(target) || 0;
-        m._stackIndex = idx;
-        stackByEl.set(target, idx + 1);
-      } else {
-        m._stackIndex = 0;
-      }
+      const stackIdx = target ? (stackByEl.get(target) || 0) : 0;
+      m._stackIndex = stackIdx;
+      if (target) stackByEl.set(target, stackIdx + 1);
       markerLayer.appendChild(m);
     });
     positionMarkers();
-    // If a drag is in flight when render fires (e.g. the skill called
-    // markWorking on another annotation), rebind dragState.marker to the
-    // freshly mounted DOM so the in-progress drag keeps working.
+    // Re-attach in-flight drag to the freshly mounted marker DOM.
     if (dragState && dragState.id) {
       const live = markerLayer.querySelector(`.marker[data-annotation-id="${dragState.id}"]`);
       if (live) {
@@ -598,10 +595,7 @@
     }
   }
 
-  // Recompute viewport-relative coords for every marker from its target's live
-  // rect. Markers are position:fixed, so the rect's top/right ARE the coords we
-  // want — no scroll math needed. rAF-batched so a fast scroll firing 60×/sec
-  // across many markers does one read-pass then one write-pass.
+  // rAF-batched: scroll events firing 60×/sec collapse into one read/write pass.
   let positionPending = false;
   function positionMarkers() {
     if (positionPending) return;
@@ -611,13 +605,9 @@
       const markers = markerLayer.querySelectorAll(".marker");
       const reads = [];
       markers.forEach((m) => {
-        // Re-resolve if the host page (React, etc.) replaced the cached node.
-        // Detached nodes return a zero rect, which would silently freeze the
-        // marker in place.
+        // Detached cached nodes return zero rects; re-resolve so markers don't silently freeze.
         if (!m._targetEl || !m._targetEl.isConnected) {
-          if (m._elementPath) {
-            try { m._targetEl = document.querySelector(m._elementPath); } catch { m._targetEl = null; }
-          }
+          m._targetEl = resolveTarget(m._elementPath);
         }
         const el = m._targetEl;
         if (!el) { reads.push(null); return; }
@@ -718,8 +708,7 @@
     if (outline) outline.style.display = "none";
     if (overlay) overlay.style.pointerEvents = "none";
     const isEdit = !!existing;
-    // Edit path skips point mode, so the global Esc listener isn't installed
-    // yet. Install it here; closePopup removes it only if it owned it.
+    // Edit path bypasses point mode's keydown install — own it here, release in closePopup.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
     popup = document.createElement("div");
