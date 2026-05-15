@@ -412,7 +412,7 @@
         position: relative;
         display: inline-flex;
         align-items: center;
-        margin: -4px 4px;
+        margin: -4px 0;
       }
       .annotate-stack::before {
         content: "";
