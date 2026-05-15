@@ -657,7 +657,7 @@
     const hasAnnotations = currentPage.length > 0;
     copyCount.textContent = visibleCount > 0 ? String(visibleCount) : "";
     pointBtn.classList.toggle("active", state.pointing);
-    pointBtn.textContent = state.pointing ? "cancel" : "+ annotate";
+    pointBtn.textContent = state.pointing ? "done" : "+ annotate";
     copyBtn.disabled = !hasAnnotations;
     renderMarkers();
   }
