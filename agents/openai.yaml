@@ -1,0 +1,4 @@
+name: avis
+description: Point at elements on a webpage and send the feedback back to the agent. Use for design reviews, annotations, or any avis pass on a Chrome tab.
+mcp_servers:
+  - perch

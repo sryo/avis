@@ -10,17 +10,19 @@ A floating toolbar gets injected onto the user's open page. They click `+ annota
 
 ## Backend
 
-Works with either browser MCP backend. The body below uses perch tool names; if only `claude-in-chrome` is wired up, substitute via this table:
+Needs a browser MCP server wired into your agent. Known-good backends: **perch** (macOS, any MCP client) and **claude-in-chrome** (Claude Code only). The skill names tools by capability — pick whichever your client exposes:
 
-| Used in this skill | perch | claude-in-chrome |
+| Capability | perch | claude-in-chrome |
 |---|---|---|
-| list tabs | `mcp__perch__list_tabs` | `mcp__claude-in-chrome__tabs_context_mcp` |
-| eval JS in tab | `mcp__perch__eval_js` | `mcp__claude-in-chrome__javascript_tool` |
-| new tab | `mcp__perch__new_tab` | `mcp__claude-in-chrome__tabs_create_mcp` |
-| navigate | `mcp__perch__navigate` | `mcp__claude-in-chrome__navigate` |
-| page text / html | `mcp__perch__get_text` / `get_html` | `mcp__claude-in-chrome__read_page` / `get_page_text` |
+| list tabs | `list_tabs` | `tabs_context_mcp` |
+| eval JS in tab | `eval_js` | `javascript_tool` |
+| new tab | `new_tab` | `tabs_create_mcp` |
+| navigate | `navigate` | `navigate` |
+| page text / html | `get_text` / `get_html` | `read_page` / `get_page_text` |
 
-If neither backend is wired up, see Notes for install paths.
+Your client may prefix these (e.g. Claude Code surfaces them as `mcp__perch__list_tabs`). Use whichever form your client exposes.
+
+If no backend is wired up, see Notes for install paths.
 
 ## Annotation shape
 
@@ -55,7 +57,7 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 
 ## Steps
 
-1. **Pick the target tab.** Call `mcp__perch__list_tabs`. Use a tab already on `localhost` / `127.0.0.1` / `0.0.0.0` if one's open. If the user named a URL, navigate. If the active tab is blank and you're in a code project, detect the dev server via `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` and/or `package.json` framework hints; navigate without asking if either hits. Otherwise ask. Tell the user one line about what you picked so they can redirect.
+1. **Pick the target tab.** Call the list-tabs tool. Use a tab already on `localhost` / `127.0.0.1` / `0.0.0.0` if one's open. If the user named a URL, navigate. If the active tab is blank and you're in a code project, detect the dev server via `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` and/or `package.json` framework hints; navigate without asking if either hits. Otherwise ask. Tell the user one line about what you picked so they can redirect.
 
 2. **Pick the inject path.** Run `git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `git -C ~/.claude/skills/avis rev-parse HEAD` (in parallel with step 1). Clean status → CDN (3a). Dirty → inline (3b) and tell the user: *"Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."*
 
@@ -102,7 +104,7 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 - **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
 - **No backend wired up.** Offer perch (macOS — you install it for the user) or Claude in Chrome (any OS — they install it from the Chrome Web Store).
 
-  For perch: explain what install will do (clones to `~/.perch`, registers via `claude mcp add`, prompts for browser permission toggles on first use), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
+  For perch: explain what install will do (clones to `~/.perch`, prompts for browser permission toggles on first use; on Claude Code also auto-registers via `claude mcp add`, on other MCP clients prints paste-ready config snippets), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
 
   Either path: the user restarts Claude Code before re-running `/avis`.
 
