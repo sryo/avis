@@ -651,19 +651,6 @@
         box-shadow: 0 0 0 1px rgba(0,0,0,.25);
         pointer-events: none;
       }
-      .marker .depth-dots {
-        position: absolute;
-        bottom: -3px; left: -3px;
-        font: 700 8px/8px -apple-system, system-ui, sans-serif;
-        letter-spacing: 1px;
-        color: #1a1a0e;
-        background: rgba(255,255,255,.92);
-        padding: 2px 3px;
-        border-radius: 8px;
-        box-shadow: 0 0 0 1px rgba(0,0,0,.15);
-        pointer-events: none;
-        white-space: nowrap;
-      }
       .marker.revealing {
         animation: avis-reveal .8s ease;
       }
@@ -730,13 +717,6 @@
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
-      const depth = a.priorClicks ? Math.min(a.priorClicks.length, PRIOR_CLICKS_MAX) : 0;
-      if (depth > 0) {
-        const dots = document.createElement("span");
-        dots.className = "depth-dots";
-        dots.textContent = "•".repeat(depth);
-        m.appendChild(dots);
-      }
       const target = resolveTarget(a.elementPath);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
