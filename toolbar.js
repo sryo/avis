@@ -617,13 +617,6 @@
       .marker:hover { background: #4d8ff9; }
       .marker.agent { background: #8b5cf6; }
       .marker.agent:hover { background: #a07bf8; }
-      .marker.orphaned {
-        background: #94a3b8;
-        outline: 2px dashed rgba(0,0,0,.4);
-        outline-offset: -2px;
-        opacity: .75;
-      }
-      .marker.orphaned:hover { background: #a3aec0; opacity: 1; }
       .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
       .marker.tentative {
         background: #f7e373; color: #1a1a0e;
@@ -639,16 +632,6 @@
         border-top-color: #3b82f6;
         border-right-color: #3b82f6;
         animation: avis-spin .8s linear infinite;
-        pointer-events: none;
-      }
-      .marker.acknowledged::after {
-        content: "";
-        position: absolute;
-        top: -2px; right: -2px;
-        width: 7px; height: 7px;
-        background: #fbbf24;
-        border-radius: 50%;
-        box-shadow: 0 0 0 1px rgba(0,0,0,.25);
         pointer-events: none;
       }
       .marker.revealing {
@@ -772,9 +755,8 @@
           top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
           orphaned = false;
         } else if (m._orphanAbsX !== undefined) {
-          // Element is gone — render at the saved capture-time position so the
-          // comment doesn't silently vanish. Marker gets an `orphaned` class
-          // so it reads as stale (dashed outline, muted color).
+          // Element is gone — fall back to the saved capture-time position so
+          // the comment doesn't silently vanish.
           left = Math.round(m._orphanAbsX - window.scrollX) + "px";
           top = Math.round(m._orphanAbsY - window.scrollY + (m._stackIndex || 0) * 26) + "px";
           orphaned = true;

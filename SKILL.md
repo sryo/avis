@@ -38,7 +38,7 @@ window.__avis.summary()         // compact projection — prefer over .annotatio
                                 // Also sidesteps claude-in-chrome's response filter.
 window.__avis.pageUrl           // getter, current page URL
 window.__avis.reveal(id)        // smooth-scroll + pulse marker; no-op off-page
-window.__avis.acknowledge(id)   // status="acknowledged" — yellow dot on marker
+window.__avis.acknowledge(id)   // status="acknowledged" — seen, not started
 window.__avis.markWorking(id)   // status="working" — spinner on the marker
 window.__avis.unmarkWorking(id) // clear status back to pending
 window.__avis.resolve(id)       // remove the annotation (fixed)
