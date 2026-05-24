@@ -1,7 +1,7 @@
 ---
 name: avis
 description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a Chrome tab.
-allowed-tools: mcp__perch__* mcp__claude-in-chrome__* Read Bash(lsof:*)
+allowed-tools: mcp__perch__* Read Bash(lsof:*)
 ---
 
 # avis — feedback session
@@ -10,19 +10,19 @@ A floating toolbar gets injected onto the user's open page. They click `+ annota
 
 ## Backend
 
-Needs a browser MCP server wired into your agent. Known-good backends: **perch** (macOS, any MCP client) and **claude-in-chrome** (Claude Code only). The skill names tools by capability — pick whichever your client exposes:
+Needs [perch](https://github.com/sryo/perch) wired into your agent. Tools used:
 
-| Capability | perch | claude-in-chrome |
-|---|---|---|
-| list tabs | `list_tabs` | `tabs_context_mcp` |
-| eval JS in tab | `eval_js` | `javascript_tool` |
-| new tab | `new_tab` | `tabs_create_mcp` |
-| navigate | `navigate` | `navigate` |
-| page text / html | `get_text` / `get_html` | `read_page` / `get_page_text` |
+| Capability | perch |
+|---|---|
+| list tabs | `list_tabs` |
+| eval JS in tab | `eval_js` |
+| new tab | `new_tab` |
+| navigate | `navigate` |
+| page text / html | `get_text` / `get_html` |
 
 Your client may prefix these (e.g. Claude Code surfaces them as `mcp__perch__list_tabs`). Use whichever form your client exposes.
 
-If no backend is wired up, see Notes for install paths.
+If perch isn't wired up, see Notes for install path.
 
 ## Annotation shape
 
@@ -35,7 +35,6 @@ Shares field names with the [agentation v1.1 schema](https://www.agentation.com/
 ```ts
 window.__avis.annotations       // getter, full array across all pages (heavy)
 window.__avis.summary()         // compact projection — prefer over .annotations.
-                                // Also sidesteps claude-in-chrome's response filter.
 window.__avis.pageUrl           // getter, current page URL
 window.__avis.reveal(id)        // smooth-scroll + pulse marker; no-op off-page
 window.__avis.acknowledge(id)   // status="acknowledged" — seen, not started
@@ -102,11 +101,7 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 ## Notes
 
 - **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
-- **No backend wired up.** Offer perch (macOS — you install it for the user) or Claude in Chrome (any OS — they install it from the Chrome Web Store).
-
-  For perch: explain what install will do (clones to `~/.perch`, prompts for browser permission toggles on first use; on Claude Code also auto-registers via `claude mcp add`, on other MCP clients prints paste-ready config snippets), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`.
-
-  Either path: the user restarts Claude Code before re-running `/avis`.
+- **No backend wired up.** Offer to install perch (macOS). Explain what install will do (clones to `~/.perch`, prompts for browser permission toggles on first use; on Claude Code also auto-registers via `claude mcp add`, on other MCP clients prints paste-ready config snippets), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`. The user restarts Claude Code before re-running `/avis`.
 
 - **perch permission setup.** First call may surface a permission hint. Pass it through verbatim — the user has to flip the toggle themselves. Common: `View > Developer > Allow JavaScript from Apple Events` for Chromium-family browsers, or the equivalent under Safari's Develop menu.
 
