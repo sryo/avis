@@ -60,7 +60,7 @@ window.__avis.persistOK()       // false if localStorage writes have failed (quo
 
 2. **Pick the inject path.** Run `git -C ~/.claude/skills/avis status --porcelain toolbar.js` and `git -C ~/.claude/skills/avis rev-parse HEAD` (in parallel with step 1). Clean status → CDN (3a). Dirty → inline (3b) and tell the user: *"Using inline inject — toolbar.js has uncommitted changes; commit + push to use the fast CDN path."*
 
-3. **Inject.**
+3. **Inject.** If the target is in Arc, call `activate_tab` on it first — Arc rejects `eval_js` on background tabs.
 
    **3a. CDN loader (fast).** Substitute `<SHA>` and pass to `eval_js`:
    ```js
