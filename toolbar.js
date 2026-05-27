@@ -1,4 +1,4 @@
-// avis — feedback toolbar. Injected onto any page; exposes annotations on
+// avis - feedback toolbar. Injected onto any page; exposes annotations on
 // window.__avis for an AI agent to read back, edit, and reply to.
 
 (function () {
@@ -9,14 +9,30 @@
   const CONSOLE_WINDOW_MS = 60_000;
   const CONSOLE_LOG_PER_ANNOTATION = 20;
 
-  // Fields exposed via window.__avis.summary(). Source of truth — SKILL.md mirrors this list.
+  // Fields exposed via window.__avis.summary(). Source of truth - SKILL.md mirrors this list.
   const SUMMARY_FIELDS = [
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
     "element", "elementPath", "text", "nearbyText",
     "parentContext", "consoleLog", "priorClicks", "url",
+    "styleTweaks",
   ];
 
+  const TWEAKS_OPEN_KEY = "avis:controlsOpen";
+
+  // Selectors we skip during rule discovery - the popup edits default-state rules only.
+  // Pseudo-class and pseudo-element rules don't apply at rest, so they'd be noise.
+  const PSEUDO_SELECTOR_RE = /:(hover|focus(-(?:within|visible))?|active|visited|checked|disabled|enabled|target|in-range|out-of-range|placeholder-shown)\b|::/i;
+
+  function rgbToHex(str) {
+    if (!str) return "#000000";
+    const s = String(str).trim();
+    const m = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (m) return "#" + [m[1], m[2], m[3]].map((n) => (+n).toString(16).padStart(2, "0")).join("");
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(s)) return "#" + s.slice(1).split("").map((c) => c + c).join("").toLowerCase();
+    return "#000000";
+  }
   // Ring buffer of recent console.* output, sliced into each annotation at capture.
   const consoleBuffer = [];
 
@@ -35,7 +51,7 @@
       return s == null ? "[unserializable]" : (s.length > 200 ? s.slice(0, 200) + "…" : s);
     } catch { return "[unserializable]"; }
   }
-  // log/warn/error only — debug/info on chatty pages would dominate the buffer.
+  // log/warn/error only - debug/info on chatty pages would dominate the buffer.
   for (const lvl of ["log", "warn", "error"]) {
     const orig = console[lvl];
     if (typeof orig !== "function") continue;
@@ -55,7 +71,7 @@
   const findAnnotation = (id) => state.annotations.find((a) => a.id === id);
   const findAnnotationIndex = (id) => state.annotations.findIndex((a) => a.id === id);
 
-  // Inline marker update — markWorking/acknowledge run in tight loops; full render() is O(N).
+  // Inline marker update - markWorking/acknowledge run in tight loops; full render() is O(N).
   function setStatus(id, status) {
     const a = findAnnotation(id);
     if (!a) return false;
@@ -159,7 +175,7 @@
   function persist() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.annotations)); }
     catch (e) {
-      if (!persistBroken) console.warn("[avis] persist failed — annotations won't survive a reload.", e);
+      if (!persistBroken) console.warn("[avis] persist failed - annotations won't survive a reload.", e);
       persistBroken = true;
       const tb = typeof shadow !== "undefined" && shadow.querySelector(".toolbar");
       if (tb) tb.classList.add("persist-broken");
@@ -188,7 +204,7 @@
 
   function getReactInfo(el) {
     // Walk up the DOM until we find a React fiber. SSR nodes (Next.js RSC,
-    // Astro islands, etc.) have no fiber — their nearest hydrated parent does.
+    // Astro islands, etc.) have no fiber - their nearest hydrated parent does.
     let node = el;
     let key = getFiberKey(node);
     while (!key && node && node.parentElement) {
@@ -255,7 +271,7 @@
       const sel = `${el.tagName.toLowerCase()}[aria-label=${JSON.stringify(aria)}]`;
       if (isUnique(sel, el)) return sel;
     }
-    // Path cascade — short-circuit at the first depth that's already unique.
+    // Path cascade - short-circuit at the first depth that's already unique.
     const parts = [];
     let cur = el;
     let depth = 0;
@@ -566,7 +582,7 @@
         cursor: grab; user-select: none;
       }
       /* Reply: quote the agent's parent comment in a lavender block inside the
-         yellow user paper — gives the visual cue "this is replying to an agent
+         yellow user paper - gives the visual cue "this is replying to an agent
          post-it" without restructuring the popup. */
       .popup.reply .label {
         background: linear-gradient(180deg, #f0e7ff 0%, #e2d4ff 100%);
@@ -643,6 +659,90 @@
       @keyframes avis-reveal {
         0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
         50% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(59,130,246,.3), 0 4px 10px rgba(0,0,0,.3); }
+      }
+
+      .popup-tweaks-toggle {
+        margin-top: 10px; background: transparent; border: 0; padding: 0;
+        font: 11px/1.2 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .55;
+        cursor: pointer; user-select: none;
+        display: flex; align-items: center; gap: 6px; width: 100%;
+      }
+      .popup-tweaks-toggle:hover { opacity: 1; }
+      .popup-tweaks-toggle .popup-tweaks-leader { flex: 1; opacity: .35;
+        overflow: hidden; text-overflow: clip;
+      }
+      .popup-tweaks-toggle .popup-tweaks-chevron { font-size: 9px; transition: transform .15s; }
+      .popup-tweaks[hidden] { display: none; }
+      .popup-tweaks {
+        margin-top: 8px;
+        max-height: 240px; overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(26,26,14,.35) transparent;
+      }
+      .popup-rule {
+        margin-bottom: 8px;
+        border-top: 1px dashed rgba(26,26,14,.22);
+        padding-top: 6px;
+      }
+      .popup-rule:first-child { border-top: 0; padding-top: 0; }
+      .popup-rule-selector {
+        font: 600 11px/1.2 ui-monospace, monospace;
+        color: #1a1a0e;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .popup-rule-source {
+        font: italic 9px/1.2 -apple-system, system-ui, sans-serif;
+        color: #1a1a0e; opacity: .45;
+        margin-bottom: 4px;
+      }
+      .popup-decl {
+        display: grid; grid-template-columns: 76px 1fr 42px;
+        gap: 6px; align-items: center;
+        padding: 2px 0;
+      }
+      .popup-decl-label {
+        font: 10px/1.2 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .65;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .popup-decl input[type=range] {
+        width: 100%; margin: 0; accent-color: #7a6a2e;
+        background: transparent;
+      }
+      .popup-decl input[type=color] {
+        width: 100%; height: 18px; padding: 0;
+        border: 1px solid rgba(26,26,14,.25); border-radius: 2px;
+        background: transparent; cursor: pointer;
+      }
+      .popup-decl .popup-decl-value {
+        font: 10px/1 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .5;
+        text-align: right;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .popup-decl .popup-decl-readonly {
+        grid-column: 2 / 4;
+        font: 10px/1.2 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .45;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .popup-decl.touched .popup-decl-label,
+      .popup-decl.touched .popup-decl-value {
+        opacity: 1; font-weight: 600;
+      }
+      .popup-rule-undo {
+        background: transparent; border: 0; padding: 2px 0;
+        font: 10px/1 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .5; cursor: pointer;
+        margin-top: 2px;
+      }
+      .popup-rule-undo:hover { opacity: 1; text-decoration: underline; }
+      .popup-rule-undo[hidden] { display: none; }
+      .popup-tweaks-unreadable {
+        font: 9px/1.2 ui-monospace, monospace;
+        color: #1a1a0e; opacity: .4;
+        margin-top: 6px;
       }
     </style>
     <div class="toolbar" role="toolbar" aria-label="avis">
@@ -755,7 +855,7 @@
           top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
           orphaned = false;
         } else if (m._orphanAbsX !== undefined) {
-          // Element is gone — fall back to the saved capture-time position so
+          // Element is gone - fall back to the saved capture-time position so
           // the comment doesn't silently vanish.
           left = Math.round(m._orphanAbsX - window.scrollX) + "px";
           top = Math.round(m._orphanAbsY - window.scrollY + (m._stackIndex || 0) * 26) + "px";
@@ -862,7 +962,7 @@
     const isCreate = !existing;
     // Reply needs a fresh element to anchor to; resolve from the parent's selector.
     if (isReply && !el) el = resolveTarget(existing.elementPath);
-    // Edit path bypasses point mode's keydown install — own it here, release in closePopup.
+    // Edit path bypasses point mode's keydown install - own it here, release in closePopup.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
     popup = document.createElement("div");
@@ -880,7 +980,7 @@
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
     // Breadcrumb of recent clicks that led to this annotation's state.
-    // For create, tentativeAnnotation isn't captured yet — read clickChain directly.
+    // For create, tentativeAnnotation isn't captured yet - read clickChain directly.
     const trail = isCreate ? clickChain.slice() : ((existing && existing.priorClicks) || []);
     if (trail.length) {
       popup.querySelector(".trail").textContent = trail.map((c) => c.target).join(" › ");
@@ -901,6 +1001,103 @@
       tentativeAnnotation = capture(el, "", isReply ? { replyTo: existing.id } : undefined);
     }
     render();
+
+    // Tweak-rules UI: skipped for replies. Resolves the target from the saved selector
+    // when this is an edit (marker click hands `el = null`). When discovery finds nothing
+    // applicable, the toggle never mounts and the post-it stays comment-only.
+    let previewSheet = null;
+    const ruleBlocks = [];
+    if (!isReply) {
+      const targetEl = el || resolveTarget(existing && existing.elementPath);
+      if (targetEl) {
+        const { rules, unreadable } = discoverMatchedRules(targetEl);
+        if (rules.length) {
+          previewSheet = createPreviewSheet();
+          previewSheet.attach(getSelector(targetEl));
+
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "popup-tweaks-toggle";
+          const chev = document.createElement("span");
+          chev.className = "popup-tweaks-chevron";
+          const labelSpan = document.createElement("span");
+          labelSpan.textContent = `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`;
+          const leader = document.createElement("span");
+          leader.className = "popup-tweaks-leader";
+          leader.textContent = "·".repeat(60);
+          toggle.appendChild(chev);
+          toggle.appendChild(labelSpan);
+          toggle.appendChild(leader);
+
+          const tweaksRoot = document.createElement("div");
+          tweaksRoot.className = "popup-tweaks";
+
+          for (const entry of rules) {
+            const rb = buildRuleBlock(entry, previewSheet.set, previewSheet.clear);
+            ruleBlocks.push({ entry, decls: rb.decls, hydrateTweak: rb.hydrateTweak });
+            tweaksRoot.appendChild(rb.block);
+          }
+
+          if (unreadable) {
+            const note = document.createElement("div");
+            note.className = "popup-tweaks-unreadable";
+            note.textContent = `· ${unreadable} stylesheet${unreadable === 1 ? "" : "s"} unreadable (cross-origin)`;
+            tweaksRoot.appendChild(note);
+          }
+
+          let isOpen = false;
+          try { isOpen = localStorage.getItem(TWEAKS_OPEN_KEY) === "1"; } catch {}
+          const applyOpen = (open) => {
+            isOpen = open;
+            chev.textContent = open ? "▾" : "▸";
+            tweaksRoot.hidden = !open;
+          };
+          applyOpen(isOpen);
+          toggle.addEventListener("click", () => {
+            applyOpen(!isOpen);
+            try { localStorage.setItem(TWEAKS_OPEN_KEY, isOpen ? "1" : "0"); } catch {}
+          });
+
+          const hint = popup.querySelector(".hint");
+          popup.insertBefore(toggle, hint);
+          popup.insertBefore(tweaksRoot, hint);
+
+          // Edit rehydration: re-apply the saved tweaks visually + mark rows touched.
+          if (isEdit && Array.isArray(existing.styleTweaks)) {
+            for (const t of existing.styleTweaks) {
+              previewSheet.set(t.property, t.after);
+              for (const rb of ruleBlocks) {
+                if (rb.decls.some((d) => d.property === t.property)) {
+                  rb.hydrateTweak(t.property, t.after);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    popup._previewSheet = previewSheet;
+
+    function collectTweaks() {
+      if (!previewSheet) return [];
+      const out = [];
+      for (const [property, after] of previewSheet.entries()) {
+        let foundEntry = null, beforeValue = "";
+        for (const rb of ruleBlocks) {
+          const d = rb.decls.find((dd) => dd.property === property);
+          if (d) { foundEntry = rb.entry; beforeValue = d.value; break; }
+        }
+        out.push({
+          selector: foundEntry ? foundEntry.selectorText : "(inline)",
+          source: foundEntry ? ruleSourceLabel(foundEntry) : "inline",
+          property,
+          before: beforeValue,
+          after,
+        });
+      }
+      return out;
+    }
 
     const ta = popup.querySelector("textarea");
     if (isEdit) ta.value = existing.comment;
@@ -939,7 +1136,7 @@
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
     });
 
-    // Marker clicks are handled by markerLayer's mousedown — let that path commit so the same gesture can also start a drag.
+    // Marker clicks are handled by markerLayer's mousedown - let that path commit so the same gesture can also start a drag.
     function onOutside(e) {
       if (!popup) return;
       const path = e.composedPath();
@@ -953,22 +1150,32 @@
 
     function commit() {
       const text = ta.value.trim();
+      const tweaks = collectTweaks();
+      const hasTweaks = tweaks.length > 0;
+      // Detach the preview sheet before capture() reads computedStyles so the snapshot
+      // reflects the baseline page, not the in-progress overrides.
+      if (previewSheet) previewSheet.detach();
       if (isEdit) {
         const i = findAnnotationIndex(existing.id);
         if (i !== -1) {
-          if (!text) {
+          if (!text && !hasTweaks) {
             state.annotations.splice(i, 1);
-          } else if (text !== existing.comment) {
-            state.annotations[i] = { ...state.annotations[i], comment: text };
+          } else {
+            const updated = { ...state.annotations[i], comment: text };
+            if (hasTweaks) updated.styleTweaks = tweaks;
+            else delete updated.styleTweaks;
+            state.annotations[i] = updated;
           }
         }
-      } else if (text && el) {
-        state.annotations.push(capture(el, text, isReply ? { replyTo: existing.id } : undefined));
+      } else if ((text || hasTweaks) && el) {
+        const ann = capture(el, text, isReply ? { replyTo: existing.id } : undefined);
+        if (hasTweaks) ann.styleTweaks = tweaks;
+        state.annotations.push(ann);
       }
       persist();
       closePopup();
       // Stay in point mode after a create so the user can keep batch-annotating.
-      // Esc (now staged: closes popup first, exits point mode on second press) is the way out.
+      // Esc (staged: closes popup first, exits point mode on second press) is the way out.
       if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }
@@ -976,6 +1183,7 @@
 
   function closePopup() {
     if (popup) {
+      if (popup._previewSheet) popup._previewSheet.detach();
       if (popup._onOutside) document.removeEventListener("pointerdown", popup._onOutside, true);
       if (popup._ownsKeydown) document.removeEventListener("keydown", onKeydown, true);
       popup.remove();
@@ -983,6 +1191,276 @@
     }
     tentativeAnnotation = null;
     editingId = null;
+  }
+
+  // Rule discovery - walk document.styleSheets, return the rules whose selectors
+  // currently match `el` in its default state. Plus a synthetic entry for inline styles.
+  // Cross-origin sheets throw on `.cssRules` and are silently counted.
+  function discoverMatchedRules(el) {
+    const rules = [];
+    let unreadable = 0;
+    function walk(rule) {
+      if (rule.type === 1 /* CSSStyleRule */) {
+        const selectorText = rule.selectorText || "";
+        // Split on top-level commas. Naive - `:where(a, b)` would mis-split; rare in practice.
+        const parts = selectorText.split(",").map((s) => s.trim()).filter(Boolean);
+        const matched = parts.filter((s) => {
+          if (PSEUDO_SELECTOR_RE.test(s)) return false;
+          try { return el.matches(s); } catch { return false; }
+        });
+        if (matched.length) rules.push({ rule, selectorText, matched });
+      } else if (rule.cssRules) {
+        // CSSMediaRule, CSSSupportsRule, CSSLayerBlockRule, CSSContainerRule, etc.
+        if (rule.type === 4 /* CSSMediaRule */) {
+          try { if (!matchMedia(rule.conditionText || rule.media.mediaText).matches) return; } catch {}
+        }
+        for (const sub of rule.cssRules) walk(sub);
+      }
+    }
+    for (const sheet of document.styleSheets) {
+      let list;
+      try { list = sheet.cssRules; } catch { unreadable++; continue; }
+      if (!list) continue;
+      for (const r of list) walk(r);
+    }
+    // Inline styles → synthetic entry, last in the list.
+    if (el.style.length > 0) {
+      rules.push({ rule: { style: el.style, parentStyleSheet: null, _inline: true }, selectorText: "(inline)", matched: ["(inline)"] });
+    }
+    return { rules, unreadable };
+  }
+
+  function ruleSourceLabel(entry) {
+    if (entry.rule._inline) return "inline";
+    const sheet = entry.rule.parentStyleSheet;
+    if (!sheet) return "(stylesheet)";
+    if (sheet.href) {
+      try { return new URL(sheet.href).pathname.split("/").pop() || sheet.href; } catch { return sheet.href; }
+    }
+    const owner = sheet.ownerNode;
+    if (owner && owner.tagName === "STYLE") return owner.id ? `<style id="${owner.id}">` : "<style>";
+    return "(stylesheet)";
+  }
+
+  // Read declarations off a CSSStyleRule (or our synthetic inline entry).
+  // CSSStyleDeclaration is array-like: keys 0..length-1 are property names.
+  function readDeclarations(entry) {
+    const out = [];
+    const s = entry.rule.style;
+    for (let i = 0; i < s.length; i++) {
+      const property = s[i];
+      const value = (s.getPropertyValue(property) || "").trim();
+      if (!value) continue;
+      const inferred = inferControl(value);
+      out.push({ property, value, ...inferred });
+    }
+    return out;
+  }
+
+  // Decide how to render a control for a value. Returns {kind, ...range/unit info}.
+  function inferControl(value) {
+    const v = value.trim();
+    // Color: hex, rgb/rgba, hsl/hsla.
+    if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return { kind: "color" };
+    if (/^rgba?\(/i.test(v) || /^hsla?\(/i.test(v)) return { kind: "color" };
+    // Length: number + recognized unit.
+    const lenMatch = v.match(/^(-?\d+(?:\.\d+)?)(px|rem|em|%|vw|vh|fr|ch|ex)$/i);
+    if (lenMatch) {
+      const n = parseFloat(lenMatch[1]);
+      const unit = lenMatch[2].toLowerCase();
+      let min = Math.min(0, n);
+      let max;
+      let step = 1;
+      if (unit === "%" || unit === "vw" || unit === "vh") { max = 100; }
+      else if (unit === "rem" || unit === "em" || unit === "ch" || unit === "ex") { max = Math.max(4, n * 2); step = 0.05; }
+      else if (unit === "fr") { max = Math.max(4, n * 2); step = 1; }
+      else { max = Math.max(64, Math.ceil(n * 2)); step = 1; }
+      return { kind: "length", unit, min, max, step, initial: n };
+    }
+    // Bare number (no unit) - opacity, line-height, z-index, font-weight, flex-grow.
+    if (/^-?\d+(?:\.\d+)?$/.test(v)) {
+      const n = parseFloat(v);
+      const isFractional = !Number.isInteger(n) || (n >= 0 && n <= 1);
+      const max = isFractional && n <= 1 ? 1 : Math.max(1, Math.ceil(Math.abs(n) * 2 || 1));
+      const step = isFractional ? 0.01 : 1;
+      return { kind: "number", min: Math.min(0, n), max, step, initial: n };
+    }
+    return { kind: "readonly" };
+  }
+
+  function displayTweakValue(decl, raw) {
+    if (decl.kind === "color") return String(raw);
+    if (decl.kind === "length") return Math.round(raw * 100) / 100 + decl.unit;
+    return String(Math.round((+raw) * 1000) / 1000);
+  }
+
+  // Preview-sheet manager. Constructable stylesheet is the happy path; some CSPs reject
+  // it (no `unsafe-inline` on style-src in strict mode), so we fall back to a <style>
+  // appended to <head>. Either way the override targets a unique selector for the picked
+  // element with !important so we beat all author rules without modifying them.
+  function createPreviewSheet() {
+    const tweaks = new Map(); // property → formatted value
+    let selector = null;
+    let constructable = null;
+    let fallback = null;
+    function attach() {
+      if (constructable || fallback) return;
+      try {
+        constructable = new CSSStyleSheet();
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, constructable];
+      } catch {
+        fallback = document.createElement("style");
+        document.head.appendChild(fallback);
+      }
+    }
+    function flush() {
+      if (!selector || (!constructable && !fallback)) return;
+      const body = Array.from(tweaks.entries())
+        .map(([p, v]) => `${p}: ${v} !important;`)
+        .join(" ");
+      const css = body ? `${selector} { ${body} }` : "";
+      if (constructable) constructable.replaceSync(css);
+      else fallback.textContent = css;
+    }
+    return {
+      attach(sel) { selector = sel; attach(); flush(); },
+      set(prop, formatted) { tweaks.set(prop, formatted); flush(); },
+      clear(prop) { tweaks.delete(prop); flush(); },
+      detach() {
+        if (constructable) {
+          document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== constructable);
+          constructable = null;
+        }
+        if (fallback) { fallback.remove(); fallback = null; }
+        tweaks.clear();
+        selector = null;
+      },
+      entries() { return Array.from(tweaks.entries()); },
+    };
+  }
+
+  function buildDeclarationRow(decl, onChange) {
+    const row = document.createElement("div");
+    row.className = "popup-decl";
+    row.dataset.property = decl.property;
+
+    const label = document.createElement("span");
+    label.className = "popup-decl-label";
+    label.textContent = decl.property;
+    row.appendChild(label);
+
+    if (decl.kind === "readonly") {
+      const ro = document.createElement("span");
+      ro.className = "popup-decl-readonly";
+      ro.textContent = decl.value;
+      ro.title = decl.value;
+      row.appendChild(ro);
+      return { row, setValue: () => {} };
+    }
+
+    let input, badge;
+    if (decl.kind === "color") {
+      input = document.createElement("input");
+      input.type = "color";
+      input.value = rgbToHex(decl.value);
+      badge = document.createElement("span");
+      badge.className = "popup-decl-value";
+      badge.textContent = input.value;
+      input.addEventListener("input", () => {
+        badge.textContent = input.value;
+        onChange(input.value);
+      });
+    } else {
+      input = document.createElement("input");
+      input.type = "range";
+      input.min = decl.min; input.max = decl.max; input.step = decl.step;
+      input.value = decl.initial;
+      badge = document.createElement("span");
+      badge.className = "popup-decl-value";
+      badge.textContent = displayTweakValue(decl, decl.initial);
+      input.addEventListener("input", () => {
+        const v = parseFloat(input.value);
+        badge.textContent = displayTweakValue(decl, v);
+        onChange(decl.kind === "length" ? v + decl.unit : String(v));
+      });
+    }
+    row.appendChild(input);
+    row.appendChild(badge);
+
+    return {
+      row,
+      setValue(v) {
+        if (decl.kind === "color") {
+          input.value = rgbToHex(v);
+          badge.textContent = input.value;
+        } else {
+          input.value = String(v);
+          badge.textContent = displayTweakValue(decl, parseFloat(v));
+        }
+      },
+    };
+  }
+
+  function buildRuleBlock(entry, onTweak, onClear) {
+    const block = document.createElement("div");
+    block.className = "popup-rule";
+
+    const sel = document.createElement("div");
+    sel.className = "popup-rule-selector";
+    sel.textContent = entry.selectorText;
+    sel.title = entry.selectorText;
+    block.appendChild(sel);
+
+    const src = document.createElement("div");
+    src.className = "popup-rule-source";
+    src.textContent = ruleSourceLabel(entry);
+    block.appendChild(src);
+
+    const decls = readDeclarations(entry);
+    const rowsByProp = new Map();
+    for (const decl of decls) {
+      const built = buildDeclarationRow(decl, (formatted) => {
+        built.row.classList.add("touched");
+        onTweak(decl.property, formatted);
+        undoBtn.hidden = false;
+      });
+      rowsByProp.set(decl.property, { decl, ...built });
+      block.appendChild(built.row);
+    }
+
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.className = "popup-rule-undo";
+    undoBtn.textContent = "↩ undo tweaks";
+    undoBtn.hidden = true;
+    undoBtn.addEventListener("click", () => {
+      for (const [prop, info] of rowsByProp) {
+        if (info.row.classList.contains("touched")) {
+          info.row.classList.remove("touched");
+          info.setValue(info.decl.kind === "color" ? rgbToHex(info.decl.value) : info.decl.initial);
+          onClear(prop);
+        }
+      }
+      undoBtn.hidden = true;
+    });
+    block.appendChild(undoBtn);
+
+    return {
+      block,
+      decls,
+      hydrateTweak(property, afterValue) {
+        const info = rowsByProp.get(property);
+        if (!info || info.decl.kind === "readonly") return;
+        if (info.decl.kind === "color") {
+          info.setValue(afterValue);
+        } else {
+          // afterValue arrives as a formatted string ("16px", "0.6"); pull the number.
+          info.setValue(parseFloat(afterValue));
+        }
+        info.row.classList.add("touched");
+        undoBtn.hidden = false;
+      },
+    };
   }
 
   let dragState = null;
@@ -1096,7 +1574,7 @@
     const updated = capture(target, old.comment);
     updated.id = old.id;
     updated.timestamp = old.timestamp;
-    // Preserve the console window from the original pin — re-anchoring shouldn't
+    // Preserve the console window from the original pin - re-anchoring shouldn't
     // overwrite the runtime context the user pinned to.
     updated.consoleLog = old.consoleLog;
     state.annotations[i] = updated;
@@ -1124,7 +1602,7 @@
   window.addEventListener("resize", positionMarkers);
 
   // Capture real clicks (outside the toolbar's shadow root) so each annotation
-  // records the trigger chain that led to its state — overlays, menus, modals.
+  // records the trigger chain that led to its state - overlays, menus, modals.
   // textContent (vs innerText) avoids forcing layout reflow on every page click.
   document.addEventListener("mousedown", (e) => {
     const el = e.target;
@@ -1135,7 +1613,7 @@
     if (clickChain.length > PRIOR_CLICKS_MAX) clickChain.shift();
   }, { passive: true, capture: true });
 
-  // Coalesce navigation re-renders via rAF — back/forward + framework replaceState can fire in the same tick.
+  // Coalesce navigation re-renders via rAF - back/forward + framework replaceState can fire in the same tick.
   let navPending = false;
   function scheduleRender() {
     if (navPending) return;
@@ -1149,5 +1627,5 @@
   history.replaceState = function () { _replace.apply(this, arguments); scheduleRender(); };
 
   render();
-  console.log("[avis] toolbar installed — click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
+  console.log("[avis] toolbar installed - click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
 })();
