@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>avis - Point at It Instead of Describing It</title>
+  <meta name="description" content="Leave comments on a page and your agent sees them in context. The toolbar is live on this page.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #222;
+      --text-secondary: #666;
+      --accent: #4285F4;
+      --border: #e0e0e0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #2a2a2a;
+        --text-primary: #f0f0f0;
+        --text-secondary: #a0a0a0;
+        --border: #3a3a3a;
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    .container { max-width: 720px; margin: 0 auto; padding: 0 1.5rem; }
+
+    /* Hero */
+    .hero { padding: 140px 2rem 40px; text-align: center; }
+    .hero__content { max-width: 800px; margin: 0 auto; }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      animation: fadeInUp 0.8s ease;
+    }
+
+    .hero h2 {
+      font-size: 1.35rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      line-height: 1.7;
+    }
+
+    .hero__cta a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+    .hero__cta a:hover { text-decoration: underline; }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Demo: the page itself is the demo, so this section is what you point at. */
+    .demo-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin: 3rem 0;
+      padding: 32px;
+    }
+
+    .demo-section h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .demo-section p { color: var(--text-secondary); font-size: 0.95rem; }
+    .demo-section p + p { margin-top: 0.8rem; }
+
+    /* The post-it and the markers below are lifted from toolbar.js so the page
+       shows the same objects the toolbar puts on it. */
+    .pill {
+      --fold-x: 8px;
+      --fold-y: 6px;
+      position: relative;
+      display: inline-block;
+      background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
+      color: #1a1a0e;
+      border-radius: 0;
+      border-bottom-right-radius: var(--fold-x) var(--fold-y);
+      corner-bottom-right-shape: bevel;
+      overflow: clip;
+      padding: 3px 9px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      transform: rotate(-3deg);
+      box-shadow: 0 3px 7px rgba(0, 0, 0, 0.18);
+    }
+    .pill::after {
+      content: "";
+      background: inherit;
+      width: var(--fold-x);
+      height: var(--fold-y);
+      position: absolute;
+      inset: auto 0 0 auto;
+      corner-top-left-shape: bevel;
+      border-top-left-radius: calc(100% - var(--fold-y)) 100%;
+      box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0, 0, 0, 0.2);
+    }
+
+    .install { padding: 0 0 20px; }
+    .install h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
+    pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 0.85rem;
+    }
+    .install p { color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.8rem; }
+    .install a { color: var(--accent); text-decoration: none; }
+    .install a:hover { text-decoration: underline; }
+
+    /* FAQ */
+    .faq-section { max-width: 640px; margin: 0 auto; padding: 60px 24px; }
+    .faq-section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; }
+
+    details { background: var(--bg-primary); border-bottom: 1px solid var(--border); }
+    details:first-of-type { border-top: 1px solid var(--border); }
+
+    summary {
+      padding: 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: '+';
+      font-size: 1.25rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+    }
+    details[open] summary::after { content: '−'; }
+
+    details p {
+      padding: 0 16px 16px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
+    }
+    details code {
+      background: var(--bg-secondary);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    }
+    details a { color: var(--accent); text-decoration: none; }
+    details a:hover { text-decoration: underline; }
+
+    /* Footer */
+    .footer { padding: 60px 2rem 40px; text-align: center; }
+    .footer__bottom {
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    @media (max-width: 600px) {
+      .hero { padding: 80px 1.5rem 30px; }
+      .hero h1 { font-size: 2.5rem; }
+      .hero h2 { font-size: 1.1rem; }
+      .demo-section { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <section class="hero">
+    <div class="hero__content">
+      <h1>avis</h1>
+      <h2>Point at it instead of describing it</h2>
+      <p class="hero__cta"><a href="https://github.com/sryo/avis">View on GitHub</a></p>
+    </div>
+  </section>
+
+  <div class="container">
+    <section class="demo-section">
+      <h3>Try it</h3>
+      <p>
+        Click <span class="pill">+ annotate</span> and point at anything on this page.
+      </p>
+      <p>
+        On your own page: run <code>/avis</code>, leave notes, type "done". Your agent reads
+        them back with enough context to find the code, then fixes and resolves each one.
+      </p>
+    </section>
+
+    <section class="install">
+      <h2>Install</h2>
+      <pre>git clone https://github.com/sryo/avis ~/.claude/skills/avis</pre>
+      <p>
+        Clone wherever your agent loads skills from. It pairs with a browser MCP server;
+        <a href="https://github.com/sryo/perch">perch</a> is the reference backend on macOS.
+      </p>
+    </section>
+  </div>
+
+  <section class="faq-section">
+    <h2>FAQ</h2>
+
+    <details>
+      <summary>What problem does this solve?</summary>
+      <p>
+        "Make this button bigger" doesn't say which button. Pointing does.
+      </p>
+    </details>
+
+    <details>
+      <summary>What does a note carry?</summary>
+      <p>
+        The element, its text, its selector path, the surrounding context, and the console
+        output from just before you clicked. On React dev builds it also carries the source
+        file and line, so the agent opens the right file without grepping.
+      </p>
+    </details>
+
+    <details>
+      <summary>Can the agent annotate the page for me?</summary>
+      <p>
+        Yes, and clicking its marker opens a reply box so you can answer on the page.
+      </p>
+    </details>
+
+    <details>
+      <summary>Can I change styles from a note?</summary>
+      <p>
+        Sliders inside a note tweak the CSS rule behind the element and preview it live. The
+        agent gets the before and after so it edits the rule in source.
+      </p>
+    </details>
+
+    <details>
+      <summary>Where do the notes live?</summary>
+      <p>
+        In <code>localStorage</code> on the page. They survive a reload and nothing is sent
+        anywhere.
+      </p>
+    </details>
+
+    <details>
+      <summary>Is it free?</summary>
+      <p>Yes, open source and free to use.</p>
+    </details>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__bottom">© 2026 sryo</div>
+    </div>
+  </footer>
+
+  <script src="toolbar.js"></script>
+</body>
+</html>
