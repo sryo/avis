@@ -4,6 +4,7 @@
 (function () {
   if (window.__avis || document.getElementById("__avis_host")) return;
 
+  const VERSION = "2.0.0";
   const STORAGE_KEY = "avis:annotations";
   const CONSOLE_BUFFER_MAX = 200;
   const CONSOLE_WINDOW_MS = 60_000;
@@ -115,15 +116,43 @@
     try { return document.querySelector(path); } catch { return null; }
   };
 
+  const isEmpty = (v) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
+
   window.__avis = {
+    VERSION,
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
-    // Use this in javascript_tool to dodge the chrome bridge's content filter on large payloads.
-    summary() {
-      return state.annotations.map((a) => ({
-        ...Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, a[k]])),
-        status: a.status || "pending",
-      }));
+    summary(opts = {}) {
+      const statuses = opts.status == null ? null : [].concat(opts.status);
+      const list = opts.page ? currentPageAnnotations() : state.annotations;
+      return list
+        .filter((a) => !statuses || statuses.includes(a.status || "pending"))
+        .map((a) => {
+          const out = {};
+          for (const k of SUMMARY_FIELDS) {
+            if (k === "consoleLog" && !opts.console) continue;
+            const v = a[k];
+            if (isEmpty(v)) continue;
+            out[k] = v && typeof v === "object" && !Array.isArray(v)
+              ? Object.fromEntries(Object.entries(v).filter(([, x]) => !isEmpty(x)))
+              : v;
+          }
+          if (!opts.console && a.consoleLog && a.consoleLog.length) out.consoleCount = a.consoleLog.length;
+          out.status = a.status || "pending";
+          return out;
+        });
+    },
+    info() {
+      const count = (status) => state.annotations.filter((a) => (a.status || "pending") === status).length;
+      return {
+        v: VERSION,
+        page: location.href,
+        total: state.annotations.length,
+        onPage: currentPageAnnotations().length,
+        pending: count("pending"),
+        working: count("working"),
+        persistOK: !persistBroken,
+      };
     },
     reveal(id) {
       const a = findAnnotation(id);
