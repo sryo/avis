@@ -1425,17 +1425,45 @@
     return "(stylesheet)";
   }
 
+  // CSSOM enumerates `padding: 8px 16px` as its four longhands; these fold back so the
+  // edges editor can drive them. Longhand order matches the shorthand's value order.
+  const LONGHAND_GROUPS = [
+    ["padding", ["padding-top", "padding-right", "padding-bottom", "padding-left"]],
+    ["margin", ["margin-top", "margin-right", "margin-bottom", "margin-left"]],
+    ["inset", ["top", "right", "bottom", "left"]],
+    ["border-width", ["border-top-width", "border-right-width", "border-bottom-width", "border-left-width"]],
+    ["border-radius", ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"]],
+  ];
+
   // Read declarations off a CSSStyleRule (or our synthetic inline entry).
   // CSSStyleDeclaration is array-like: keys 0..length-1 are property names.
   function readDeclarations(entry) {
-    const out = [];
     const s = entry.rule.style;
+    const raw = [];
     for (let i = 0; i < s.length; i++) {
       const property = s[i];
       const value = (s.getPropertyValue(property) || "").trim();
       if (!value) continue;
-      const inferred = inferControl(value, property);
-      out.push({ property, value, ...inferred });
+      raw.push({ property, value, priority: s.getPropertyPriority ? s.getPropertyPriority(property) : "" });
+    }
+    const byProp = new Map(raw.map((d) => [d.property, d]));
+    const shorthandAt = new Map();
+    const folded = new Set();
+    for (const [shorthand, longhands] of LONGHAND_GROUPS) {
+      const parts = longhands.map((p) => byProp.get(p));
+      if (parts.some((d) => !d) || parts.some((d) => d.priority !== parts[0].priority)) continue;
+      const parsed = parseShorthand4(parts.map((d) => d.value).join(" "));
+      if (!parsed) continue;
+      shorthandAt.set(raw.find((d) => longhands.includes(d.property)), {
+        property: shorthand,
+        value: formatShorthand4(parsed.values, parsed.unit),
+      });
+      for (const p of longhands) folded.add(p);
+    }
+    const out = [];
+    for (const d of raw) {
+      const decl = shorthandAt.get(d) || (folded.has(d.property) ? null : d);
+      if (decl) out.push({ property: decl.property, value: decl.value, ...inferControl(decl.value, decl.property) });
     }
     return out;
   }
@@ -2054,7 +2082,7 @@
   if (window.__AVIS_TEST__) {
     window.__avis._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
-      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, capture,
+      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, readDeclarations, capture,
       serializeConsoleArg,
     };
   }
