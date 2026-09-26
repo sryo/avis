@@ -10,7 +10,6 @@
   const CONSOLE_WINDOW_MS = 60_000;
   const CONSOLE_LOG_PER_ANNOTATION = 20;
 
-  // Fields exposed via window.__avis.summary(). Source of truth - SKILL.md mirrors this list.
   const SUMMARY_FIELDS = [
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
@@ -135,10 +134,7 @@
       persist();
       for (const a of changed) {
         const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
-        if (m) {
-          m.classList.toggle("working", a.status === "working");
-          m.classList.toggle("acknowledged", a.status === "acknowledged");
-        }
+        if (m) m.classList.toggle("working", a.status === "working");
       }
     });
   }
@@ -986,7 +982,6 @@
       if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
       if (a.status === "working") m.classList.add("working");
-      if (a.status === "acknowledged") m.classList.add("acknowledged");
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
@@ -1039,23 +1034,20 @@
       });
       markers.forEach((m, i) => {
         const r = reads[i];
-        let left, top, orphaned;
+        let left, top;
         if (r) {
           left = Math.round(r.right - 11) + "px";
           top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
-          orphaned = false;
         } else if (m._orphanAbsX !== undefined) {
           // Element is gone - fall back to the saved capture-time position so
           // the comment doesn't silently vanish.
           left = Math.round(m._orphanAbsX - window.scrollX) + "px";
           top = Math.round(m._orphanAbsY - window.scrollY + (m._stackIndex || 0) * 26) + "px";
-          orphaned = true;
         } else {
           return;
         }
         if (m.style.left !== left) m.style.left = left;
         if (m.style.top !== top) m.style.top = top;
-        m.classList.toggle("orphaned", orphaned);
       });
     });
   }
