@@ -41,17 +41,57 @@
   // an agent reading it back can reproduce overlay/menu state by replaying the chain.
   const PRIOR_CLICKS_MAX = 3;
   const clickChain = [];
+  const CONSOLE_ARG_MAX = 200;
+  const CONSOLE_ARG_READS = 64;
+  // JSON-ish rendering that stops after CONSOLE_ARG_READS property reads or CONSOLE_ARG_MAX
+  // chars, so logging a store or a DOM-heavy object can't stall the page.
   function serializeConsoleArg(a) {
     if (a == null) return String(a);
     const t = typeof a;
-    if (t === "string") return a;
-    if (t === "number" || t === "boolean") return String(a);
-    if (a instanceof Error) return a.message;
-    try {
-      const s = JSON.stringify(a);
-      return s == null ? "[unserializable]" : (s.length > 200 ? s.slice(0, 200) + "…" : s);
-    } catch { return "[unserializable]"; }
+    if (t === "string") return clip(a);
+    if (t !== "object") return t === "function" ? "[function]" : String(a);
+    if (Object.prototype.toString.call(a) === "[object Error]") return clip(String(a.message));
+    let out = "";
+    let reads = 0;
+    const seen = new Set();
+    const full = () => out.length > CONSOLE_ARG_MAX || reads >= CONSOLE_ARG_READS;
+    function walk(v, depth) {
+      if (v === null || typeof v !== "object") {
+        out += typeof v === "string" ? JSON.stringify(v.slice(0, CONSOLE_ARG_MAX))
+          : typeof v === "function" ? '"[function]"'
+          : v === undefined ? "null" : String(v);
+        return;
+      }
+      if (Object.prototype.toString.call(v) === "[object Date]") { out += JSON.stringify(isNaN(v) ? "Invalid Date" : v.toISOString()); return; }
+      const isArr = Array.isArray(v);
+      if (seen.has(v) || depth > 4) { out += isArr ? '"[…]"' : '"{…}"'; return; }
+      seen.add(v);
+      let keys;
+      try { keys = isArr ? null : Object.keys(v); } catch { out += '"[unserializable]"'; return; }
+      reads++;
+      const n = isArr ? v.length : keys.length;
+      out += isArr ? "[" : "{";
+      for (let i = 0; i < n; i++) {
+        if (full()) return;
+        if (i) out += ",";
+        if (!isArr) out += JSON.stringify(keys[i]) + ":";
+        reads++;
+        let x;
+        try { x = isArr ? v[i] : v[keys[i]]; } catch { x = "[threw]"; }
+        walk(x, depth + 1);
+      }
+      out += isArr ? "]" : "}";
+    }
+    walk(a, 0);
+    return full() || out.length > CONSOLE_ARG_MAX ? out.slice(0, CONSOLE_ARG_MAX) + "…" : out;
   }
+  function clip(s) {
+    return s.length > CONSOLE_ARG_MAX ? s.slice(0, CONSOLE_ARG_MAX) + "…" : s;
+  }
+  // avis's own logs go through the unpatched methods so they never land in consoleBuffer.
+  const pageConsole = { log: console.log, warn: console.warn };
+  const avisLog = (...args) => pageConsole.log.apply(console, args);
+  const avisWarn = (...args) => pageConsole.warn.apply(console, args);
   // log/warn/error only - debug/info on chatty pages would dominate the buffer.
   for (const lvl of ["log", "warn", "error"]) {
     const orig = console[lvl];
@@ -177,7 +217,7 @@
     resolve(ids) { return removeAnnotations(ids, () => true); },
     dismiss(ids, reason) {
       return removeAnnotations(ids, (a) => {
-        console.log("[avis] dismissed " + a.id + (reason ? ": " + reason : ""));
+        avisLog("[avis] dismissed " + a.id + (reason ? ": " + reason : ""));
         return { id: a.id, comment: a.comment, reason: reason || null };
       });
     },
@@ -217,7 +257,7 @@
   function persist() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.annotations)); }
     catch (e) {
-      if (!persistBroken) console.warn("[avis] persist failed - annotations won't survive a reload.", e);
+      if (!persistBroken) avisWarn("[avis] persist failed - annotations won't survive a reload.", e);
       persistBroken = true;
       const tb = typeof shadow !== "undefined" && shadow.querySelector(".toolbar");
       if (tb) tb.classList.add("persist-broken");
@@ -2023,9 +2063,10 @@
     window.__avis._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
       getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, capture,
+      serializeConsoleArg,
     };
   }
 
   render();
-  console.log("[avis] toolbar installed - click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
+  avisLog("[avis] toolbar installed - click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
 })();
