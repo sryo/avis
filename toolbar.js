@@ -71,20 +71,44 @@
   const findAnnotation = (id) => state.annotations.find((a) => a.id === id);
   const findAnnotationIndex = (id) => state.annotations.findIndex((a) => a.id === id);
 
-  // Inline marker update - markWorking/acknowledge run in tight loops; full render() is O(N).
-  function setStatus(id, status) {
-    const a = findAnnotation(id);
-    if (!a) return false;
+  // Scalar id → scalar result; array of ids → array of results. `apply` mutates
+  // state and returns the per-id result; `commit` runs once if anything changed.
+  function batch(ids, apply, commit) {
+    const list = Array.isArray(ids) ? ids : [ids];
+    const results = list.map(apply);
+    if (results.some(Boolean)) commit();
+    return Array.isArray(ids) ? results : results[0];
+  }
+
+  // Inline marker update instead of render() - status changes run in tight loops; render() is O(N).
+  function setStatus(ids, status) {
     const next = status || undefined;
-    if ((a.status || undefined) === next) return false;
-    if (next) a.status = next; else delete a.status;
-    persist();
-    const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
-    if (m) {
-      m.classList.toggle("working", a.status === "working");
-      m.classList.toggle("acknowledged", a.status === "acknowledged");
-    }
-    return true;
+    const changed = [];
+    return batch(ids, (id) => {
+      const a = findAnnotation(id);
+      if (!a || (a.status || undefined) === next) return false;
+      if (next) a.status = next; else delete a.status;
+      changed.push(a);
+      return true;
+    }, () => {
+      persist();
+      for (const a of changed) {
+        const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
+        if (m) {
+          m.classList.toggle("working", a.status === "working");
+          m.classList.toggle("acknowledged", a.status === "acknowledged");
+        }
+      }
+    });
+  }
+
+  function removeAnnotations(ids, toResult) {
+    return batch(ids, (id) => {
+      const i = findAnnotationIndex(id);
+      if (i === -1) return false;
+      const [a] = state.annotations.splice(i, 1);
+      return toResult(a);
+    }, () => { persist(); render(); });
   }
   const resolveTarget = (path) => {
     if (!path) return null;
@@ -118,26 +142,15 @@
       }
       return true;
     },
-    acknowledge(id) { return setStatus(id, "acknowledged"); },
-    markWorking(id)  { return setStatus(id, "working"); },
-    unmarkWorking(id) { return setStatus(id, null); },
-    resolve(id) {
-      const i = findAnnotationIndex(id);
-      if (i === -1) return false;
-      state.annotations.splice(i, 1);
-      persist();
-      render();
-      return true;
-    },
-    dismiss(id, reason) {
-      const i = findAnnotationIndex(id);
-      if (i === -1) return false;
-      const a = state.annotations[i];
-      state.annotations.splice(i, 1);
-      persist();
-      render();
-      console.log("[avis] dismissed " + id + (reason ? ": " + reason : ""));
-      return { id, comment: a.comment, reason: reason || null };
+    acknowledge(ids) { return setStatus(ids, "acknowledged"); },
+    markWorking(ids) { return setStatus(ids, "working"); },
+    unmarkWorking(ids) { return setStatus(ids, null); },
+    resolve(ids) { return removeAnnotations(ids, () => true); },
+    dismiss(ids, reason) {
+      return removeAnnotations(ids, (a) => {
+        console.log("[avis] dismissed " + a.id + (reason ? ": " + reason : ""));
+        return { id: a.id, comment: a.comment, reason: reason || null };
+      });
     },
     add(selectorOrEl, comment, opts = {}) {
       if (!comment) return null;
