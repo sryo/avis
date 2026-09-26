@@ -27,7 +27,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `nearbyText` | Parent's text when it differs (80 chars max). |
 | `parentContext` | `{element, text, accessibility}` of the parent. The fallback when the pinned node is unlabeled. |
 | `accessibility` | `role`, `aria-label`, `name`, `placeholder`, `type` (full annotation only). |
-| `consoleLog` | Up to 20 `{level, ts, msg}` entries from `console.log/warn/error` in the 60s before the pin. Each argument is capped at 200 chars and 64 property reads. avis's own `[avis]` lines are excluded. |
+| `consoleLog` | Up to 20 `{level, ts, msg}` entries from `console.log/warn/error` in the 60s before the pin. Each argument is capped at 200 chars and 64 property reads. avis's own `[avis]` lines are excluded. On pages whose CSP blocks inline scripts, Chrome-family browsers capture nothing here and `sourceFile`/`reactComponents` stay empty. |
 | `priorClicks` | Last 3 page clicks as `{target, ts}`, to replay menus or overlays that were open. |
 | `url`, `pageTitle` | Where the pin was made. |
 | `styleTweaks` | Array of `{selector, source, property, before, after}`, present when the user edited values in the post-it's `tweak rules` panel. |

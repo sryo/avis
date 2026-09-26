@@ -88,20 +88,13 @@
     return s.length > CONSOLE_ARG_MAX ? s.slice(0, CONSOLE_ARG_MAX) + "…" : s;
   }
   // avis's own logs go through the unpatched methods so they never land in consoleBuffer.
-  const pageConsole = { log: console.log, warn: console.warn };
+  // In the main world the bridge may already have patched these; __avisOrig is the real one.
+  const pageConsole = { log: console.log.__avisOrig || console.log, warn: console.warn.__avisOrig || console.warn };
   const avisLog = (...args) => pageConsole.log.apply(console, args);
   const avisWarn = (...args) => pageConsole.warn.apply(console, args);
-  // log/warn/error only - debug/info on chatty pages would dominate the buffer.
-  for (const lvl of ["log", "warn", "error"]) {
-    const orig = console[lvl];
-    if (typeof orig !== "function") continue;
-    console[lvl] = function (...args) {
-      try {
-        consoleBuffer.push({ level: lvl, ts: Date.now(), msg: args.map(serializeConsoleArg).join(" ") });
-        if (consoleBuffer.length > CONSOLE_BUFFER_MAX) consoleBuffer.shift();
-      } catch {}
-      return orig.apply(console, args);
-    };
+  function pushConsole(level, msg) {
+    consoleBuffer.push({ level, ts: Date.now(), msg });
+    if (consoleBuffer.length > CONSOLE_BUFFER_MAX) consoleBuffer.shift();
   }
   const state = {
     annotations: load(),
@@ -320,6 +313,81 @@
     };
   }
 
+  // Chrome runs injected JS (perch's eval_js) in an isolated world: the page's console
+  // and React's __reactFiber$ expandos live in the main world, out of reach. A <script>
+  // element runs there and talks back over DOM events, which every world shares. Its
+  // source reuses the helpers above via toString, so they must stay self-contained.
+  // When strict CSP blocks inline scripts, avis patches its own world instead (the
+  // main world outside Chrome, so Safari and a <script>-loaded toolbar lose nothing).
+  function mainWorldBridge() {
+    if (window.__avisBridge) return;
+    window.__avisBridge = true;
+    // log/warn/error only - debug/info on chatty pages would dominate the buffer.
+    for (const lvl of ["log", "warn", "error"]) {
+      const orig = console[lvl];
+      if (typeof orig !== "function") continue;
+      console[lvl] = function (...args) {
+        try {
+          const msg = args.map(serializeConsoleArg).join(" ");
+          document.dispatchEvent(new CustomEvent("avis:console", { detail: JSON.stringify({ level: lvl, msg }) }));
+        } catch {}
+        return orig.apply(this, args);
+      };
+      console[lvl].__avisOrig = orig;
+    }
+    document.addEventListener("avis:react", (e) => {
+      let info = null;
+      try { info = getReactInfo(e.target); } catch {}
+      document.dispatchEvent(new CustomEvent("avis:react-result", { detail: JSON.stringify(info) }));
+    });
+    document.addEventListener("avis:ping", () => document.dispatchEvent(new CustomEvent("avis:pong")));
+  }
+
+  document.addEventListener("avis:console", (e) => {
+    try { const m = JSON.parse(e.detail); pushConsole(m.level, m.msg); } catch {}
+  });
+  let reactReply = null;
+  document.addEventListener("avis:react-result", (e) => { reactReply = e.detail; });
+
+  function installBridge() {
+    const src = [
+      `const CONSOLE_ARG_MAX = ${CONSOLE_ARG_MAX}, CONSOLE_ARG_READS = ${CONSOLE_ARG_READS};`,
+      `const SKIP_TAGS = new Set(${JSON.stringify([...SKIP_TAGS])}), SKIP_NAMES = ${SKIP_NAMES};`,
+      clip, serializeConsoleArg, getFiberKey, isMinified, getReactInfo, mainWorldBridge,
+      "mainWorldBridge();",
+    ].join("\n");
+    const script = document.createElement("script");
+    script.textContent = `(function () {\n${src}\n})();`;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+    // The script ran synchronously if the main world answers a ping.
+    let up = false;
+    const pong = () => { up = true; };
+    document.addEventListener("avis:pong", pong);
+    document.dispatchEvent(new CustomEvent("avis:ping"));
+    document.removeEventListener("avis:pong", pong);
+    return up;
+  }
+
+  const bridged = installBridge();
+  if (!bridged) {
+    for (const lvl of ["log", "warn", "error"]) {
+      const orig = console[lvl];
+      if (typeof orig !== "function") continue;
+      console[lvl] = function (...args) {
+        try { pushConsole(lvl, args.map(serializeConsoleArg).join(" ")); } catch {}
+        return orig.apply(console, args);
+      };
+    }
+  }
+
+  function reactInfo(el) {
+    if (!bridged) return getReactInfo(el);
+    reactReply = null;
+    el.dispatchEvent(new CustomEvent("avis:react", { bubbles: true }));
+    try { return reactReply ? JSON.parse(reactReply) : null; } catch { return null; }
+  }
+
   const isUnique = (sel, el) => {
     try {
       const matches = document.querySelectorAll(sel);
@@ -431,7 +499,7 @@
 
   function capture(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
-    const react = getReactInfo(el);
+    const react = reactInfo(el);
     const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
     const client = {
       userAgent: navigator.userAgent,
@@ -2091,7 +2159,7 @@
     window.__avis._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
       getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, readDeclarations, capture,
-      serializeConsoleArg,
+      serializeConsoleArg, bridged,
     };
   }
 
