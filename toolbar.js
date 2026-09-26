@@ -416,7 +416,7 @@
       source: opts.source || "user",
       replyTo: opts.replyTo || null,
       element: el.tagName.toLowerCase(),
-      elementPath: getSelector(el),
+      elementPath: opts.selector || getSelector(el),
       cssClasses: el.classList ? Array.from(el.classList).join(" ") : "",
       x: viewport.width ? Math.round((r.left / viewport.width) * 100) : 0,
       y: Math.round(r.top + viewport.scrollY),
@@ -438,6 +438,19 @@
       viewport,
       client,
       timestamp: Date.now(),
+    };
+  }
+
+  // Just enough for renderMarkers to place the in-progress marker; capture() runs on commit.
+  function placeholderAnnotation(el, selector) {
+    const r = el.getBoundingClientRect();
+    return {
+      id: "tentative",
+      comment: "",
+      source: "user",
+      elementPath: selector,
+      boundingBox: { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
+      viewport: { scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) },
     };
   }
 
@@ -1099,6 +1112,7 @@
     const isCreate = !existing;
     // Reply needs a fresh element to anchor to; resolve from the parent's selector.
     if (isReply && !el) el = resolveTarget(existing.elementPath);
+    const selector = el ? getSelector(el) : null;
     // Edit path bypasses point mode's keydown install - own it here, release in closePopup.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
@@ -1117,7 +1131,7 @@
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
     // Breadcrumb of recent clicks that led to this annotation's state.
-    // For create, tentativeAnnotation isn't captured yet - read clickChain directly.
+    // For create, read clickChain directly - the full capture only happens on commit.
     const trail = isCreate ? clickChain.slice() : ((existing && existing.priorClicks) || []);
     if (trail.length) {
       popup.querySelector(".trail").textContent = trail.map((c) => c.target).join(" › ");
@@ -1135,7 +1149,7 @@
     if (isEdit) {
       editingId = existing.id;
     } else if (el) {
-      tentativeAnnotation = capture(el, "", isReply ? { replyTo: existing.id } : undefined);
+      tentativeAnnotation = placeholderAnnotation(el, selector);
     }
     render();
 
@@ -1150,7 +1164,7 @@
         const { rules, unreadable } = discoverMatchedRules(targetEl);
         if (rules.length) {
           previewSheet = createPreviewSheet();
-          previewSheet.attach(getSelector(targetEl));
+          previewSheet.attach(selector || getSelector(targetEl));
 
           const toggle = document.createElement("button");
           toggle.type = "button";
@@ -1305,7 +1319,7 @@
           }
         }
       } else if ((text || hasTweaks) && el) {
-        const ann = capture(el, text, isReply ? { replyTo: existing.id } : undefined);
+        const ann = capture(el, text, { replyTo: isReply ? existing.id : null, selector });
         if (hasTweaks) ann.styleTweaks = tweaks;
         state.annotations.push(ann);
       }
@@ -2008,7 +2022,7 @@
   if (window.__AVIS_TEST__) {
     window.__avis._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
-      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules,
+      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, capture,
     };
   }
 
