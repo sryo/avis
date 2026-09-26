@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "happy-dom": "^20"
+  }
+}

@@ -1963,6 +1963,13 @@
   const _replace = history.replaceState;
   history.replaceState = function () { _replace.apply(this, arguments); scheduleRender(); };
 
+  if (window.__AVIS_TEST__) {
+    window.__avis._t = {
+      rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
+      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules,
+    };
+  }
+
   render();
   console.log("[avis] toolbar installed - click '+ annotate' to point at an element. Existing annotations:", state.annotations.length);
 })();
