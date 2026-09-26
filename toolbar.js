@@ -2073,11 +2073,19 @@
     navPending = true;
     requestAnimationFrame(() => { navPending = false; render(); });
   }
-  window.addEventListener("popstate", scheduleRender);
-  const _push = history.pushState;
-  history.pushState = function () { _push.apply(this, arguments); scheduleRender(); };
-  const _replace = history.replaceState;
-  history.replaceState = function () { _replace.apply(this, arguments); scheduleRender(); };
+  // Polls location instead of patching history: injected into an isolated world (perch
+  // eval_js on Chrome), a history patch never sees the page's own pushState calls.
+  let lastHref = location.href;
+  function checkNav() {
+    if (location.href === lastHref) return;
+    lastHref = location.href;
+    scheduleRender();
+  }
+  const checkNavSoon = () => setTimeout(checkNav, 0);
+  window.addEventListener("popstate", checkNav);
+  document.addEventListener("mousedown", checkNavSoon, { passive: true, capture: true });
+  document.addEventListener("click", checkNavSoon, { passive: true, capture: true });
+  setInterval(checkNav, 500);
 
   if (window.__AVIS_TEST__) {
     window.__avis._t = {
