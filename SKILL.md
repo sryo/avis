@@ -1,114 +1,46 @@
 ---
 name: avis
-description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a Chrome tab.
+description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a browser tab. Offer to run /avis (never unsolicited) when the user is working on UI, wants feedback on a page, says "let me show you what's wrong", or asks for a design review of a live URL.
 allowed-tools: mcp__perch__* Read Bash(lsof:*)
 ---
 
 # avis - feedback session
 
-A floating toolbar gets injected onto the user's open page. They click `+ annotate`, point at elements, leave comments. When they type "done" in chat you read the annotations back, edit code, and resolve each one as you address it.
+A floating toolbar goes onto the user's open page. They click `+ annotate`, point at elements and leave comments. When they type "done" you read the annotations back, edit code, and resolve each one as you go.
 
-## Backend
-
-Needs [perch](https://github.com/sryo/perch) wired into your agent. Tools used:
-
-| Capability | perch |
-|---|---|
-| list tabs | `list_tabs` |
-| eval JS in tab | `eval_js` |
-| new tab | `new_tab` |
-| navigate | `navigate` |
-| page text / html | `get_text` / `get_html` |
-
-Your client may prefix these (e.g. Claude Code surfaces them as `mcp__perch__list_tabs`). Use whichever form your client exposes.
-
-If perch isn't wired up, see Notes for install path.
-
-## Annotation shape
-
-Shares field names with the [agentation v1.1 schema](https://www.agentation.com/schema) where concepts overlap. Avis-specific fields: `sourceFile` ("path:line", React dev builds only), `reactComponents` ("<App> <Layout> <NavItem>", any React build), `parentContext` ({element, text, accessibility} of the parent - fallback when the clicked node is unlabeled), `consoleLog` ([{level, ts, msg}], `console.*` entries from the ~60s before capture - useful when the user pins something right after the page errored), `outerHTML` (≤1000 chars), `cssClasses` (full class list), `pageTitle`, `client` ({userAgent, platform, devicePixelRatio, colorScheme}), `source` (`"user"` | `"agent"`), `replyTo` (id | null - flat reply link, no nested threading), `styleTweaks` (array of `{selector, source, property, before, after}` | absent - present when the user dragged sliders inside the post-it's `tweak rules` reveal; each entry names the CSS rule the tweak targets so the agent edits that rule in source instead of writing inline styles), `status` (`pending` | `acknowledged` | `working`; set by the agent via `acknowledge` / `markWorking` / `unmarkWorking`. Resolved or dismissed annotations are removed entirely, so they don't appear in summary).
-
-**Priority order for locating the source to edit**: `sourceFile` → `reactComponents` + grep → `text` + `element` + grep → `parentContext.text` + `parentContext.element` → `elementPath`.
-
-## `window.__avis` API
-
-```ts
-window.__avis.annotations       // getter, full array across all pages (heavy)
-window.__avis.summary()         // compact projection - prefer over .annotations.
-window.__avis.pageUrl           // getter, current page URL
-window.__avis.reveal(id)        // smooth-scroll + pulse marker; no-op off-page
-window.__avis.acknowledge(id)   // status="acknowledged" - seen, not started
-window.__avis.markWorking(id)   // status="working" - spinner on the marker
-window.__avis.unmarkWorking(id) // clear status back to pending
-window.__avis.resolve(id)       // remove the annotation (fixed)
-window.__avis.dismiss(id,reason)// remove + log reason; returns {id, comment, reason}
-window.__avis.clear()           // wipe all annotations
-window.__avis.add(sel, comment, opts?)
-                                // pin your own comment to an element. opts.replyTo
-                                // threads under an existing annotation. Returns id.
-window.__avis.persistOK()       // false if localStorage writes have failed (quota,
-                                // private mode, etc.) - annotations won't survive reload.
-```
-
-**Source + replies.** `source` is `"user"` (toolbar) or `"agent"` (`__avis.add()`). Clicking an agent marker opens a reply popup; committing creates a new user annotation with `replyTo` set. Reply back the same way: `__avis.add(sel, comment, { replyTo: <userReplyId> })`.
-
-**Per-page rendering.** Markers and the count only show annotations on the current `location.pathname`. The `annotations` getter still returns everything across pages.
+Needs [perch](https://github.com/sryo/perch). Install, permissions and fallbacks: `references/setup.md`. Annotation fields: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
 
 ## Steps
 
-1. **Pick the target tab.** Call `mcp__perch__list_tabs { urlContains: "localhost", limit: 10 }` — filtered calls return `{tabs, total}`, not a bare array. If `total` is 0, call `mcp__perch__list_tabs` bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, navigate. If the active tab is blank and you're in a code project, detect the dev server via `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` and/or `package.json` framework hints; navigate without asking if either hits. Otherwise ask. Tell the user one line about what you picked so they can redirect.
+1. **Pick the tab.** `mcp__perch__list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate`. If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked.
 
-2. **Inject.** If the target is in Arc, call `activate_tab` on it first - Arc rejects `eval_js` on background tabs. Then:
+2. **Mount and verify in one call.** In Arc, `activate_tab` first (Arc rejects `eval_js` on background tabs).
    ```
-   mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js" }
+   mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()" }
    ```
-   perch reads the file server-side, so the ~76KB never enters your context, and toolbar.js is idempotent (re-injecting a mounted page is a no-op). Verify with `eval_js { script: "return window.__avis ? 'mounted' : 'mount-failed'" }`. If `script_path` errors (skill installed at a nonstandard path), `Read` `toolbar.js` next to this SKILL.md and pass it via `script` instead.
+   perch runs the file, then the script, in one body, so the toolbar source never enters your context. Re-injecting is a no-op. You get `{v, page, total, onPage, pending, working, persistOK}`. perch stringifies return values, so never wrap them in `JSON.stringify`. If `persistOK` is false, warn that annotations won't survive a reload. Existing annotations (`total > 0`) are pending work: leave them, and call `__avis.clear()` only if the user asks to start fresh.
 
-3. **Hand off.** Tell the user: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait. Existing annotations in `localStorage` are pending work - leave them. Only call `clear()` if the user explicitly asks ("start fresh", "reset").
+3. **Hand off.** Say: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait.
 
-4. **Read annotations back** when the user types `done` / `ready`. Run `JSON.stringify(window.__avis.summary())` via `eval_js` - returns the compact projection. Only fetch the full `window.__avis.annotations` if you need `computedStyles` / `outerHTML`. If empty, tell the user and stop. Echo one line per annotation so they see what you got.
+4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Echo one line per annotation.
 
-5. **Act.** For each annotation:
-   - If `sourceFile` is set, open it and edit at the captured line.
-   - Else grep using `text` + `element`, narrowed by `reactComponents` when present.
-   - **Weak-signal fallback.** If `sourceFile` and `reactComponents` are both null *and* `text` is empty/generic (≤3 chars, "div", "span"), shift the grep to `parentContext.text` + `parentContext.element` - the user often anchored on an unlabeled wrapper. Tell them so future annotations can land on labeled elements.
-   - **`styleTweaks` is a literal CSS proposal.** Each entry names the rule the user was tweaking - `selector` is the CSS selector that defined the property, `source` is the stylesheet basename / `<style>` / `inline`. Edit the named rule in the named source, not the element's inline style. If the file uses Tailwind / utility classes, translate to the closest utility-class equivalent. The `comment` may add intent on top of the tweaks; both matter. If `styleTweaks` is the only signal (no comment), the tweak itself is the request. A `selector` of `(inline)` means the original declaration lived in a `style="…"` attribute - edit that attribute (or the source code that produces it).
-   - Group related annotations into one batch where it makes sense.
+5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute). Group related annotations.
 
-6. **⚠ Show your work, clean up as you go.** For each annotation:
-   - **Batch status calls**: group transitions into one `eval_js` per status type — `['<id1>','<id2>'].forEach(id => window.__avis.acknowledge(id))` — instead of one round trip per id. Same for `markWorking` / `resolve`. `reveal()` stays per-id (it scrolls).
-   - `reveal(<id>)` to scroll the marker into view (skip in batch mode).
-   - Optional: `acknowledge(<id>)` upfront in batch mode to mark "seen, will address."
-   - `markWorking(<id>)` while working - spinner appears.
-   - `resolve(<id>)` once fixed - marker disappears.
-   - `dismiss(<id>, "<short reason>")` if not applicable (false positive, won't-fix, design intent) - marker disappears, reason gets logged, and the return value carries the reason for your final report to the user.
-   - If you skip an annotation (couldn't locate, ambiguous), `unmarkWorking(<id>)` and tell the user explicitly which ones and why.
-   - For a fast batch pass, `clear()` at the end instead of per-id `resolve()`s.
+6. **Show your work, clean up as you go.** Status calls take one id or an array. An array does one write and one re-render and returns one result per id, so batch:
+   ```
+   return __avis.markWorking(["a1", "a2"])
+   return __avis.resolve(["a1", "a2"])
+   return __avis.dismiss(["a3"], "design intent")   // [{id, comment, reason}]
+   ```
+   - `__avis.reveal(id)` scrolls to one marker; skip it in batch passes.
+   - `__avis.acknowledge(ids)` optionally marks "seen, will address".
+   - `__avis.dismiss(ids, reason)` for false positives or won't-fix; report the reasons.
+   - Skipped one (couldn't locate, ambiguous)? `__avis.unmarkWorking(ids)` and tell the user which and why.
+   - `__avis.clear()` ends a fast full pass instead of per-id resolves.
    - Never leave addressed annotations on the page. A stale marker is a bug.
 
-## Notes
+## API
 
-- **`sourceFile` is React-dev-only.** Production builds (Next.js, Vite) strip `_debugSource`; `reactComponents` + `text` is the next-best locator.
-- **No backend wired up.** Offer to install perch (macOS). Explain what install will do (clones to `~/.perch`, prompts for browser permission toggles on first use; on Claude Code also auto-registers via `claude mcp add`, on other MCP clients prints paste-ready config snippets), get consent, then run `curl -fsSL https://raw.githubusercontent.com/sryo/perch/main/install.sh | bash`. The user restarts Claude Code before re-running `/avis`.
+`window.__avis`: `info()`, `summary(opts)`, `annotations` (full, heavy), `pageUrl`, `VERSION`, `reveal(id)`, `acknowledge(ids)`, `markWorking(ids)`, `unmarkWorking(ids)`, `resolve(ids)`, `dismiss(ids, reason)`, `add(selector, comment, {replyTo})`, `clear()`, `persistOK()`.
 
-- **perch permission setup.** First call may surface a permission hint. Pass it through verbatim - the user has to flip the toggle themselves. Common: `View > Developer > Allow JavaScript from Apple Events` for Chromium-family browsers, or the equivalent under Safari's Develop menu.
-
-## When the user asks you to annotate
-
-The user can flip the direction - they ask you to pin comments instead of pointing them out. Trigger families (same mechanic, different reason):
-
-- **Critique / review** - "what's wrong here", "critique this design"
-- **Walkthrough / explain** - "annotate how this flow works"
-- **Diff / changes** - "show me what changed in the last 10 commits"
-- **Locate / map** - "where does X live"
-- **Onboarding / docs** - "annotate the key parts for a new dev"
-
-Flow: mount the toolbar (steps 1–2), pull whatever sources the request needs (`get_text` / `get_html` — both cap output at 20000 chars by default with a `[truncated: ...]` marker; pass `offset`/`maxChars` to page through long pages — plus `git log` / `git diff`, `Read`; ask for a screenshot if the issue is visual), then for each finding call `window.__avis.add('<selector>', '<comment>')` via `eval_js`. Use a selector specific enough to resolve to one element (prefer `[data-testid]` or stable classes). Batch multiple `add()` calls into one `eval_js` payload. If `add()` returns null (selector didn't match - hover-only state, dynamic overlay, anything visible in the screenshot but not in the static DOM), include the finding in your summary anyway with a short description of what you saw and roughly where. Tell the user how many were placed plus any that couldn't be anchored, and stop.
-
-If the user replies on one of your annotations, you'll see their reply in `summary()` with `replyTo` pointing at your annotation's id - treat it as a follow-up question. Reply back with `__avis.add(sel, comment, { replyTo: <theirReplyId> })`.
-
-Don't mix this with the user-driven flow in the same session unless asked.
-
-## When to suggest using `/avis`
-
-If the user is working on UI, mentions wanting feedback on a page, says "let me show you what's wrong," or asks for a design review on a live URL - offer to run `/avis`. Don't run it unsolicited.
+Markers and counts only show annotations for the current `location.pathname`; `summary()` and `annotations` span all pages.
