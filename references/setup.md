@@ -5,7 +5,7 @@
 | Need | perch tool |
 |---|---|
 | find the tab | `list_tabs` (always `{tabs, total}`; rows carry a stable `tabId`) |
-| focus a tab (Arc) | `activate_tab` |
+| bring a tab to the front (`tab_not_visible`) | `activate_tab` |
 | open or move a tab | `new_tab`, `navigate` |
 | mount, verify, read back, update status | `eval_js` |
 | page text or markup | `get_text` (`html: true` for markup) |
@@ -15,14 +15,15 @@ Clients may prefix the names; Claude Code shows them as `mcp__perch__list_tabs` 
 ## Mounting
 
 ```
-mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()", target: { app, tabId } }
+mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()", target: { tabId } }
 ```
 
-Pass the picked tab's `{app, tabId}` as `target` on every call. Without it perch uses whatever tab is active, which changes if the user switches tabs while annotating. Safari rows have no `tabId`; use `{app, windowId, tabIndex}` there and re-list if a call misses.
+Pass the picked tab's `{ tabId }` (from its `list_tabs` row, `new_tab` or `navigate`) as `target` on every call. Without it perch uses whatever tab is active, which changes if the user switches tabs while annotating. `navigate` returns the tab's `tabId`, which can change, so use the returned one afterwards.
 
 perch reads `script_path` server-side and runs it, then `script`, in a single function body. The return value is stringified by perch; return objects directly.
 
-- **Arc**: call `mcp__perch__activate_tab { target }` first. Arc rejects `eval_js` on background tabs, and if the user switches away mid-review, the next call errors instead of hitting another tab: `activate_tab` again.
+- **`tab_not_visible`**: the call needs the tab its window is showing. Call `mcp__perch__activate_tab { target }` (it takes focus) and retry, or retry later. If the user switches away mid-review, the next call errors this way instead of hitting another tab.
+- **`stale_tab`**: the tab is gone. Re-run `list_tabs` and pick again.
 - **Nonstandard install path**: if `script_path` errors, `Read` the `toolbar.js` next to SKILL.md and pass its contents followed by `return __avis.info()` as `script`.
 - **Already mounted**: `toolbar.js` returns early when `window.__avis` exists, so re-running the call is safe and just reports `info()`.
 - **`persistOK: false`**: `localStorage` writes are failing (quota, private mode). Annotations live until the page reloads.
