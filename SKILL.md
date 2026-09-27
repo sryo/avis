@@ -12,11 +12,11 @@ Needs [perch](https://github.com/sryo/perch). Install, permissions and fallbacks
 
 ## Steps
 
-1. **Pick the tab.** `mcp__perch__list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate`. If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked.
+1. **Pick the tab.** `mcp__perch__list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate`. If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep its `target` `{app, tabId}` from the row (or from `new_tab`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you.
 
-2. **Mount and verify in one call.** In Arc, `activate_tab` first (Arc rejects `eval_js` on background tabs).
+2. **Mount and verify in one call.** In Arc, `activate_tab { target }` first (Arc rejects `eval_js` on background tabs).
    ```
-   mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()" }
+   mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()", target }
    ```
    perch runs the file, then the script, in one body, so the toolbar source never enters your context. Re-injecting is a no-op. You get `{v, page, total, onPage, pending, working, persistOK}`. perch stringifies return values, so never wrap them in `JSON.stringify`. If `persistOK` is false, warn that annotations won't survive a reload. Existing annotations (`total > 0`) are pending work: leave them, and call `__avis.clear()` only if the user asks to start fresh.
 
