@@ -76,4 +76,4 @@ test("the popup's edges editor is reachable and records a shorthand tweak", () =
     // `source` is left out: happy-dom doesn't link rules to their <style> owner node.
     const tweaks = s.styleTweaks.map(({ source, ...rest }) => rest);
     assert.deepEqual(tweaks, [{ selector: ".card", property: "padding", before: "8px 16px", after: "12px 16px 8px" }]);
-  }, { before: (w) => { w.document.elementFromPoint = () => w.document.getElementById("card"); } }));
+  }, { before: (w) => { w.document.elementsFromPoint = () => [w.document.getElementById("card")]; } }));

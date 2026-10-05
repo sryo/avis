@@ -4,7 +4,7 @@ import { mount } from "./_mount.mjs";
 
 const HTML = `<h1 id="a">A</h1><h2 id="b">B</h2><h3 id="c">C</h3>`;
 
-// Counts localStorage writes to the annotations key and marker-layer re-renders.
+// Counts localStorage writes to the annotations key and render() calls.
 async function withSpies(fn) {
   const counts = { writes: 0, renders: 0 };
   const m = mount({
@@ -18,9 +18,15 @@ async function withSpies(fn) {
       Object.defineProperty(w, "localStorage", { value: spy, configurable: true });
     },
   });
-  const layer = m.document.getElementById("__avis_host").shadowRoot.querySelector(".marker-layer");
-  const orig = layer.replaceChildren;
-  layer.replaceChildren = function (...args) { counts.renders++; return orig.apply(this, args); };
+  // render() rewrites the copy count once per call; markers themselves are reused.
+  const count = m.document.getElementById("__avis_host").shadowRoot.querySelector(".copy-count");
+  let d = null;
+  for (let p = count; p && !(d && d.set); p = Object.getPrototypeOf(p)) d = Object.getOwnPropertyDescriptor(p, "textContent");
+  Object.defineProperty(count, "textContent", {
+    configurable: true,
+    get() { return d.get.call(this); },
+    set(v) { counts.renders++; d.set.call(this, v); },
+  });
   const ids = ["#a", "#b", "#c"].map((s) => m.avis.add(s, "fix " + s));
   counts.writes = 0; counts.renders = 0;
   try { await fn({ ...m, ids, counts }); } finally { await m.window.happyDOM.close(); }

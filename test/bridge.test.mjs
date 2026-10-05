@@ -35,11 +35,13 @@ test("bridge up: page console output reaches annotations exactly once", () =>
     assert.deepEqual(consoleOf(avis, id).map((e) => [e.level, e.msg]), [["log", 'page says {"a":1}']]);
   }));
 
-test("bridge up: entries relayed from another world are recorded", () =>
+test("bridge up: level:msg entries relayed from another world are recorded, malformed ones dropped", () =>
   withPage(({ window, document, avis }) => {
-    document.dispatchEvent(new window.CustomEvent("avis:console", { detail: JSON.stringify({ level: "warn", msg: "from main world" }) }));
+    for (const detail of ["warn:from main world: ok", "nope", "info:skipped", "log", 42, null]) {
+      document.dispatchEvent(new window.CustomEvent("avis:console", { detail }));
+    }
     const id = avis.add("#cta", "x");
-    assert.deepEqual(consoleOf(avis, id).map((e) => [e.level, e.msg]), [["warn", "from main world"]]);
+    assert.deepEqual(consoleOf(avis, id).map((e) => [e.level, e.msg]), [["warn", "from main world: ok"]]);
   }));
 
 test("bridge up: the script leaves no element behind and re-injecting doesn't double-patch", () =>

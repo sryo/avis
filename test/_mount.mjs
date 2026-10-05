@@ -19,7 +19,9 @@ export function mount(opts = {}) {
   const { document } = window;
   if (opts.html) document.body.innerHTML = opts.html;
   if (opts.test !== false) window.__AVIS_TEST__ = true;
-  if (typeof document.elementFromPoint !== "function") document.elementFromPoint = () => null;
+  // happy-dom has no hit testing: nothing is under any point unless a test says so.
+  if (typeof document.elementsFromPoint !== "function") document.elementsFromPoint = () => [];
+  if (typeof window.ShadowRoot.prototype.elementsFromPoint !== "function") window.ShadowRoot.prototype.elementsFromPoint = () => [];
   if (!window.CSS || typeof window.CSS.escape !== "function") {
     window.CSS = Object.assign(window.CSS || {}, { escape: (s) => String(s).replace(/[^\w-]/g, (c) => "\\" + c) });
   }
