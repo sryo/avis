@@ -43,7 +43,7 @@ If `sourceFile` and `reactComponents` are both missing and `text` is empty or ge
 
 ## `styleTweaks`
 
-Each entry names the CSS rule that defined the property. `selector` is that rule's selector and `source` is the stylesheet basename, `<style>` or `inline`. Edit that rule in that source rather than adding inline styles. For Tailwind or other utility CSS, use the closest utility class. `(inline)` means the original declaration lived in a `style="..."` attribute, so edit that attribute or the code that renders it. When a tweak arrives with no comment, the tweak itself is the request.
+Each entry names the CSS rule that defined the property. `selector` is that rule's selector; a nested rule's selector is written out in full, with `&` replaced by `:is(<parent selector>)`. `source` is one of: the stylesheet basename (an `@import`ed sheet gives its own file), `<style>`, `<style id="...">`, `(stylesheet)` (a constructed or adopted sheet, or a sheet with no file or `<style>` owner: grep for the selector), or `inline`. Edit that rule in that source rather than adding inline styles. For Tailwind or other utility CSS, use the closest utility class. `(inline)` means the original declaration lived in a `style="..."` attribute, so edit that attribute or the code that renders it. When a tweak arrives with no comment, the tweak itself is the request.
 
 ## Replies
 
