@@ -127,7 +127,10 @@
       persist();
       for (const a of changed) {
         const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
-        if (m) m.classList.toggle("working", a.status === "working");
+        if (m) {
+          m.classList.toggle("working", a.status === "working");
+          m.classList.toggle("acknowledged", a.status === "acknowledged");
+        }
       }
     });
   }
@@ -497,6 +500,7 @@
       .join("; ");
   }
 
+  const newId = () => "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   function capture(el, comment, opts = {}) {
     const r = el.getBoundingClientRect();
     const react = reactInfo(el);
@@ -515,7 +519,7 @@
       accessibility: a11y(parent),
     } : null;
     return {
-      id: "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: newId(),
       comment,
       source: opts.source || "user",
       replyTo: opts.replyTo || null,
@@ -809,6 +813,7 @@
         animation: avis-spin .8s linear infinite;
         pointer-events: none;
       }
+      .marker.acknowledged { opacity: .6; }
       .marker.revealing {
         animation: avis-reveal .8s ease;
       }
@@ -1027,13 +1032,11 @@
   let lastHoverEl = null;
 
   function render() {
-    const currentPage = currentPageAnnotations();
-    const visibleCount = currentPage.length + (tentativeAnnotation ? 1 : 0);
-    const hasAnnotations = currentPage.length > 0;
-    copyCount.textContent = visibleCount > 0 ? String(visibleCount) : "";
+    const total = state.annotations.length, n = total + (tentativeAnnotation ? 1 : 0);
+    copyCount.textContent = n ? String(n) : "";
     pointBtn.classList.toggle("active", state.pointing);
     pointBtn.textContent = state.pointing ? "done" : "+ annotate";
-    copyBtn.disabled = !hasAnnotations;
+    copyBtn.disabled = !total;
     renderMarkers();
   }
 
@@ -1049,7 +1052,7 @@
       m.className = "marker";
       if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
-      if (a.status === "working") m.classList.add("working");
+      if (a.status) m.classList.add(a.status);
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
@@ -1071,7 +1074,7 @@
     });
     positionMarkers();
     // Re-attach in-flight drag to the freshly mounted marker DOM.
-    if (dragState && dragState.id) {
+    if (dragState) {
       const live = markerLayer.querySelector(`.marker[data-annotation-id="${dragState.id}"]`);
       if (live) {
         dragState.marker = live;
@@ -1146,7 +1149,7 @@
     overlay.addEventListener("mousemove", onHover);
     overlay.addEventListener("click", onPick);
     overlay.addEventListener("contextmenu", (e) => { e.preventDefault(); exitPointMode(); });
-    document.addEventListener("keydown", onKeydown, true);
+    window.addEventListener("keydown", onKeydown, true);
     render();
   }
 
@@ -1155,24 +1158,23 @@
     if (overlay) { overlay.remove(); overlay = null; }
     if (outline) { outline.remove(); outline = null; }
     lastHoverEl = null;
-    document.removeEventListener("keydown", onKeydown, true);
+    window.removeEventListener("keydown", onKeydown, true);
     render();
   }
 
   function onKeydown(e) {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    // Staged: first Escape closes the popup (stays in point mode if active so
-    // the user can pick another element). Second Escape exits point mode.
+    // Staged: a marker drag owns Escape (onMarkerDragKey), then the popup, then point mode.
+    if (e.key !== "Escape" || dragState) return;
     if (popup) {
       closePopup();
       if (overlay) overlay.style.pointerEvents = "auto";
-      // Replay hover so the outline reappears under the cursor immediately,
-      // instead of waiting for the next mousemove to redraw.
+      // Replay hover so the outline reappears without waiting for a mousemove.
       if (state.pointing) { lastHoverEl = null; onHover({ clientX: lastHoverX, clientY: lastHoverY }); }
     } else if (state.pointing) {
       exitPointMode();
-    }
+    } else return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   }
 
   let lastHoverX = 0, lastHoverY = 0;
@@ -1185,12 +1187,15 @@
     }
     if (el === lastHoverEl) return;
     lastHoverEl = el;
-    const r = el.getBoundingClientRect();
-    outline.style.display = "block";
-    outline.style.left = r.left + "px";
-    outline.style.top = r.top + "px";
-    outline.style.width = r.width + "px";
-    outline.style.height = r.height + "px";
+    placeOutline(outline, el);
+  }
+  function placeOutline(o, el) {
+    const r = el.getBoundingClientRect(), s = o.style;
+    s.display = "block";
+    s.left = r.left + "px";
+    s.top = r.top + "px";
+    s.width = r.width + "px";
+    s.height = r.height + "px";
   }
 
   function onPick(e) {
@@ -1213,9 +1218,9 @@
     // Reply needs a fresh element to anchor to; resolve from the parent's selector.
     if (isReply && !el) el = resolveTarget(existing.elementPath);
     const selector = el ? getSelector(el) : null;
-    // Edit path bypasses point mode's keydown install - own it here, release in closePopup.
+    // Outside point mode the popup owns the Escape listener.
     const ownsKeydown = !state.pointing;
-    if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
+    if (ownsKeydown) window.addEventListener("keydown", onKeydown, true);
     popup = document.createElement("div");
     popup.className = "popup" + (isReply ? " reply" : "");
     popup._ownsKeydown = ownsKeydown;
@@ -1230,8 +1235,7 @@
       : isEdit
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
-    // Breadcrumb of recent clicks that led to this annotation's state.
-    // For create, read clickChain directly - the full capture only happens on commit.
+    // Breadcrumb of the clicks that led here; a create reads clickChain, capture() waits for commit.
     const trail = isCreate ? clickChain.slice() : ((existing && existing.priorClicks) || []);
     if (trail.length) {
       popup.querySelector(".trail").textContent = trail.map((c) => c.target).join(" › ");
@@ -1377,11 +1381,12 @@
       popup.style.top = Math.max(0, Math.min(innerHeight - 30, ny)) + "px";
     }
     function onPopupDragEnd() {
-      drag = null;
-      popup.classList.remove("dragging");
       document.removeEventListener("mousemove", onPopupDrag);
       document.removeEventListener("mouseup", onPopupDragEnd);
+      drag = null;
+      popup.classList.remove("dragging");
     }
+    popup._endDrag = onPopupDragEnd;
 
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
@@ -1389,7 +1394,6 @@
 
     // Marker clicks are handled by markerLayer's mousedown - let that path commit so the same gesture can also start a drag.
     function onOutside(e) {
-      if (!popup) return;
       const path = e.composedPath();
       if (path.includes(popup)) return;
       if (path.some((n) => n.classList && n.classList.contains("marker"))) return;
@@ -1418,15 +1422,18 @@
             state.annotations[i] = updated;
           }
         }
-      } else if ((text || hasTweaks) && el) {
-        const ann = capture(el, text, { replyTo: isReply ? existing.id : null, selector });
+      } else if (text || hasTweaks) {
+        // A reply whose parent's element is gone anchors to the parent's saved geometry.
+        const { element, elementPath, x, y, boundingBox, viewport } = existing || {};
+        const ann = el
+          ? capture(el, text, { replyTo: isReply ? existing.id : null, selector })
+          : { id: newId(), comment: text, source: "user", replyTo: existing.id, element, elementPath, x, y, boundingBox, viewport, url: location.href, timestamp: Date.now() };
         if (hasTweaks) ann.styleTweaks = tweaks;
         state.annotations.push(ann);
       }
       persist();
       closePopup();
       // Stay in point mode after a create so the user can keep batch-annotating.
-      // Esc (staged: closes popup first, exits point mode on second press) is the way out.
       if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }
@@ -1435,8 +1442,9 @@
   function closePopup() {
     if (popup) {
       if (popup._previewSheet) popup._previewSheet.detach();
+      popup._endDrag();
       if (popup._onOutside) document.removeEventListener("pointerdown", popup._onOutside, true);
-      if (popup._ownsKeydown) document.removeEventListener("keydown", onKeydown, true);
+      if (popup._ownsKeydown) window.removeEventListener("keydown", onKeydown, true);
       popup.remove();
       popup = null;
     }
@@ -1990,8 +1998,7 @@
     let m = e.target.closest(".marker");
     if (!m) return;
     const id = m.dataset.annotationId;
-    // If a popup is open (likely editing this same marker), commit it first
-    // and rebind to the freshly rendered marker DOM.
+    // Commit an open popup first, then rebind to the re-rendered marker.
     if (popup && popup._commit) {
       popup._commit();
       m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
@@ -2006,10 +2013,13 @@
       startY: e.clientY,
       moved: false,
     };
-    document.addEventListener("mousemove", onMarkerDragMove);
-    document.addEventListener("mouseup", onMarkerDragEnd);
-    document.addEventListener("keydown", onMarkerDragKey, true);
+    markerDragListeners("addEventListener");
   });
+  function markerDragListeners(f) {
+    document[f]("mousemove", onMarkerDragMove);
+    document[f]("mouseup", onMarkerDragEnd);
+    document[f]("keydown", onMarkerDragKey, true);
+  }
 
   function onMarkerDragKey(e) {
     if (e.key !== "Escape" || !dragState) return;
@@ -2019,9 +2029,7 @@
   }
   function cancelMarkerDrag() {
     if (!dragState) return;
-    document.removeEventListener("mousemove", onMarkerDragMove);
-    document.removeEventListener("mouseup", onMarkerDragEnd);
-    document.removeEventListener("keydown", onMarkerDragKey, true);
+    markerDragListeners("removeEventListener");
     if (dragState.dropOutline) dragState.dropOutline.remove();
     dragState.marker.classList.remove("dragging");
     dragState = null;
@@ -2050,12 +2058,7 @@
 
     if (target && target !== host && target !== dragState.lastTarget) {
       dragState.lastTarget = target;
-      const r = target.getBoundingClientRect();
-      dragState.dropOutline.style.display = "block";
-      dragState.dropOutline.style.left = r.left + "px";
-      dragState.dropOutline.style.top = r.top + "px";
-      dragState.dropOutline.style.width = r.width + "px";
-      dragState.dropOutline.style.height = r.height + "px";
+      placeOutline(dragState.dropOutline, target);
     } else if (!target || target === host) {
       dragState.dropOutline.style.display = "none";
       dragState.lastTarget = null;
@@ -2063,9 +2066,7 @@
   }
 
   function onMarkerDragEnd(e) {
-    document.removeEventListener("mousemove", onMarkerDragMove);
-    document.removeEventListener("mouseup", onMarkerDragEnd);
-    document.removeEventListener("keydown", onMarkerDragKey, true);
+    markerDragListeners("removeEventListener");
     if (!dragState) return;
     const { id, marker, moved, dropOutline } = dragState;
     dragState = null;
@@ -2092,12 +2093,9 @@
     const i = findAnnotationIndex(id);
     if (i === -1) return;
     const old = state.annotations[i];
-    const updated = capture(target, old.comment);
-    updated.id = old.id;
-    updated.timestamp = old.timestamp;
-    // Preserve the console window from the original pin - re-anchoring shouldn't
-    // overwrite the runtime context the user pinned to.
-    updated.consoleLog = old.consoleLog;
+    const updated = capture(target, old.comment, { source: old.source, replyTo: old.replyTo });
+    // Re-anchoring moves the pin; the note, thread, status and runtime context stay.
+    for (const k of ["id", "timestamp", "consoleLog", "priorClicks", "status", "styleTweaks"]) if (old[k] !== undefined) updated[k] = old[k];
     state.annotations[i] = updated;
     persist();
     render();
@@ -2108,7 +2106,6 @@
   });
 
   copyBtn.addEventListener("click", async () => {
-    if (state.annotations.length === 0) return;
     const json = JSON.stringify(state.annotations, null, 2);
     let ok = true;
     try { await navigator.clipboard.writeText(json); }
