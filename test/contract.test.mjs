@@ -32,7 +32,9 @@ test("_t test hook exists only when __AVIS_TEST__ is set", async () => {
 });
 
 test("every class toggled or assigned in JS is styled in the shadow <style>", () => {
-  const style = TOOLBAR_SRC.slice(TOOLBAR_SRC.indexOf("<style>"), TOOLBAR_SRC.indexOf("</style>"));
+  const start = TOOLBAR_SRC.indexOf("style.textContent = `");
+  assert.ok(start > 0, "shadow <style> source found");
+  const style = TOOLBAR_SRC.slice(start, TOOLBAR_SRC.indexOf("`;", start));
   const styled = new Set([...style.matchAll(/\.([a-z][\w-]*)/gi)].map((m) => m[1]));
   const literals = (code) => [...code.matchAll(/"([^"]*)"/g)].flatMap((m) => m[1].trim().split(/\s+/)).filter(Boolean);
   const used = new Set([

@@ -2,9 +2,13 @@
 // window.__avis for an AI agent to read back, edit, and reply to.
 
 (function () {
-  if (window.__avis || document.getElementById("__avis_host")) return;
-
   const VERSION = "2.0.0";
+  if (window.__avis) return;
+  // Host but no __avis: another JS world (page <script>, isolated world) owns the toolbar.
+  if (document.getElementById("__avis_host")) {
+    window.__avis = { VERSION, info: () => ({ v: VERSION, mountedElsewhere: true }) };
+    return;
+  }
   const STORAGE_KEY = "avis:annotations";
   const CONSOLE_BUFFER_MAX = 200;
   const CONSOLE_WINDOW_MS = 60_000;
@@ -88,7 +92,7 @@
     return s.length > CONSOLE_ARG_MAX ? s.slice(0, CONSOLE_ARG_MAX) + "…" : s;
   }
   // avis's own logs go through the unpatched methods so they never land in consoleBuffer.
-  // In the main world the bridge may already have patched these; __avisOrig is the real one.
+  // A main-world re-run (host removed, or a mount threw) sees the bridge's patch; __avisOrig is the real one.
   const pageConsole = { log: console.log.__avisOrig || console.log, warn: console.warn.__avisOrig || console.warn };
   const avisLog = (...args) => pageConsole.log.apply(console, args);
   const avisWarn = (...args) => pageConsole.warn.apply(console, args);
@@ -126,7 +130,7 @@
     }, () => {
       persist();
       for (const a of changed) {
-        const m = markerLayer && markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
+        const m = markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
         if (m) m.classList.toggle("working", a.status === "working");
       }
     });
@@ -147,7 +151,7 @@
 
   const isEmpty = (v) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
 
-  window.__avis = {
+  const api = {
     VERSION,
     get annotations() { return state.annotations.slice(); },
     get pageUrl() { return location.href; },
@@ -248,8 +252,7 @@
     catch (e) {
       if (!persistBroken) avisWarn("[avis] persist failed - annotations won't survive a reload.", e);
       persistBroken = true;
-      const tb = typeof shadow !== "undefined" && shadow.querySelector(".toolbar");
-      if (tb) tb.classList.add("persist-broken");
+      shadow.querySelector(".toolbar").classList.add("persist-broken");
     }
   }
 
@@ -356,10 +359,12 @@
       clip, serializeConsoleArg, getFiberKey, isMinified, getReactInfo, mainWorldBridge,
       "mainWorldBridge();",
     ].join("\n");
-    const script = document.createElement("script");
-    script.textContent = `(function () {\n${src}\n})();`;
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
+    try {
+      const script = document.createElement("script");
+      script.textContent = `(function () {\n${src}\n})();`;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch { return false; }
     // The script ran synchronously if the main world answers a ping.
     let up = false;
     const pong = () => { up = true; };
@@ -561,459 +566,457 @@
   const host = document.createElement("div");
   host.id = "__avis_host";
   host.style.cssText = "all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;";
-  document.documentElement.appendChild(host);
-  // Shadow DOM for style isolation.
+  // Shadow DOM for style isolation. The host joins the page once mount succeeds.
   const shadow = host.attachShadow({ mode: "open" });
+  // Nodes, not innerHTML: Trusted Types pages reject HTML strings.
+  function h(tag, cls, attrs, ...kids) {
+    const e = document.createElement(tag);
+    e.className = cls;
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    e.append(...kids);
+    return e;
+  }
 
-  shadow.innerHTML = `
-    <style>
-      :host { all: initial; }
-      * { box-sizing: border-box; font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
-      .toolbar {
-        position: fixed; bottom: 16px; right: 16px;
-        background: #111; color: #fff;
-        border-radius: 10px; padding: 6px;
-        font-size: 13px; line-height: 1;
-        display: flex; gap: 4px; align-items: center;
-        box-shadow: 0 6px 20px rgba(0,0,0,.25);
-        z-index: 100; pointer-events: auto;
-      }
-      .toolbar.persist-broken::before {
-        content: "!";
-        position: absolute; top: -6px; left: -6px;
-        width: 16px; height: 16px;
-        background: #b91c1c; color: #fff;
-        border-radius: 50%;
-        font: 700 11px/16px -apple-system, system-ui, sans-serif;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,.3);
-      }
-      .btn {
-        background: #2a2a2a; color: #fff; border: 0;
-        padding: 8px 12px; border-radius: 6px;
-        cursor: pointer; font: inherit; transition: background .1s;
-      }
-      .btn:hover { background: #3a3a3a; }
-      .btn.primary { background: #3b82f6; }
-      .btn.primary:hover { background: #4d8ff9; }
-      .btn.primary:disabled { background: #1e3a66; cursor: default; }
-      .btn.active { background: #ef4444; }
-      .btn.active:hover { background: #f05555; }
+  const style = document.createElement("style");
+  style.textContent = `
+    :host { all: initial; }
+    * { box-sizing: border-box; font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
+    .toolbar {
+      position: fixed; bottom: 16px; right: 16px;
+      background: #111; color: #fff;
+      border-radius: 10px; padding: 6px;
+      font-size: 13px; line-height: 1;
+      display: flex; gap: 4px; align-items: center;
+      box-shadow: 0 6px 20px rgba(0,0,0,.25);
+      z-index: 100; pointer-events: auto;
+    }
+    .toolbar.persist-broken::before {
+      content: "!";
+      position: absolute; top: -6px; left: -6px;
+      width: 16px; height: 16px;
+      background: #b91c1c; color: #fff;
+      border-radius: 50%;
+      font: 700 11px/16px -apple-system, system-ui, sans-serif;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,.3);
+    }
+    .btn {
+      background: #2a2a2a; color: #fff; border: 0;
+      padding: 8px 12px; border-radius: 6px;
+      cursor: pointer; font: inherit; transition: background .1s;
+    }
+    .btn:hover { background: #3a3a3a; }
+    .btn.primary { background: #3b82f6; }
+    .btn.primary:hover { background: #4d8ff9; }
+    .btn.primary:disabled { background: #1e3a66; cursor: default; }
 
-      .annotate-stack {
-        position: relative;
-        display: inline-flex;
-        align-items: center;
-        margin: -4px 0;
-      }
-      .annotate-stack::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, #fde675 0%, #e8d05c 100%);
-        transform: rotate(-7deg) translate(-3px, 2px);
-        transform-origin: center;
-        box-shadow: 0 2px 5px rgba(0,0,0,.15);
-        z-index: 0;
-        transition: transform .12s ease;
-      }
-      .annotate-stack:has(.btn.active)::before { display: none; }
+    .annotate-stack {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      margin: -4px 0;
+    }
+    .annotate-stack::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, #fde675 0%, #e8d05c 100%);
+      transform: rotate(-7deg) translate(-3px, 2px);
+      transform-origin: center;
+      box-shadow: 0 2px 5px rgba(0,0,0,.15);
+      z-index: 0;
+      transition: transform .12s ease;
+    }
+    .annotate-stack:has(.btn.active)::before { display: none; }
 
-      .btn[data-act=point] {
-        --fold-x: 10px;
-        --fold-y: 8px;
-        position: relative;
-        z-index: 1;
-        background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
-        color: #1a1a0e;
-        border-radius: 0;
-        border-bottom-right-radius: var(--fold-x) var(--fold-y);
-        corner-bottom-right-shape: bevel;
-        overflow: clip;
-        padding: 12px 14px;
-        font-weight: 500;
-        transform: rotate(-3deg);
-        transform-origin: center;
-        box-shadow: 0 3px 7px rgba(0,0,0,.18);
-        transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
-      }
-      .btn[data-act=point]:hover {
-        transform: rotate(-3deg) translateY(-3px);
-        background: linear-gradient(180deg, #fff7a8 0%, #faea84 100%);
-        box-shadow: 0 5px 10px rgba(0,0,0,.22);
-      }
-      .btn[data-act=point]::after {
-        content: "";
-        background: inherit;
-        width: var(--fold-x); height: var(--fold-y);
-        position: absolute;
-        inset: auto 0 0 auto;
-        corner-top-left-shape: bevel;
-        border-top-left-radius: calc(100% - var(--fold-y)) 100%;
-        box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.2);
-        pointer-events: none;
-      }
-      .btn[data-act=point].active {
-        background: #2a2a2a;
-        color: #fff;
-        border-radius: 6px;
-        corner-bottom-right-shape: round;
-        padding: 8px 12px;
-        margin: 0;
-        transform: none;
-        box-shadow: none;
-      }
-      .btn[data-act=point].active:hover {
-        background: #3a3a3a;
-      }
-      .btn[data-act=point].active::after { display: none; }
+    .btn[data-act=point] {
+      --fold-x: 10px;
+      --fold-y: 8px;
+      position: relative;
+      z-index: 1;
+      background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
+      color: #1a1a0e;
+      border-radius: 0;
+      border-bottom-right-radius: var(--fold-x) var(--fold-y);
+      corner-bottom-right-shape: bevel;
+      overflow: clip;
+      padding: 12px 14px;
+      font-weight: 500;
+      transform: rotate(-3deg);
+      transform-origin: center;
+      box-shadow: 0 3px 7px rgba(0,0,0,.18);
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+    }
+    .btn[data-act=point]:hover {
+      transform: rotate(-3deg) translateY(-3px);
+      background: linear-gradient(180deg, #fff7a8 0%, #faea84 100%);
+      box-shadow: 0 5px 10px rgba(0,0,0,.22);
+    }
+    .btn[data-act=point]::after {
+      content: "";
+      background: inherit;
+      width: var(--fold-x); height: var(--fold-y);
+      position: absolute;
+      inset: auto 0 0 auto;
+      corner-top-left-shape: bevel;
+      border-top-left-radius: calc(100% - var(--fold-y)) 100%;
+      box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.2);
+      pointer-events: none;
+    }
+    .btn[data-act=point].active {
+      background: #2a2a2a;
+      color: #fff;
+      border-radius: 6px;
+      corner-bottom-right-shape: round;
+      padding: 8px 12px;
+      margin: 0;
+      transform: none;
+      box-shadow: none;
+    }
+    .btn[data-act=point].active:hover {
+      background: #3a3a3a;
+    }
+    .btn[data-act=point].active::after { display: none; }
 
-      .brand {
-        font-weight: 600; letter-spacing: .02em;
-        padding: 0 6px 0 8px; opacity: .85;
-        color: inherit; text-decoration: none; cursor: pointer;
-      }
-      .brand:hover { opacity: 1; }
-      .btn.copied { background: #16a34a; }
-      .btn.copy-failed { background: #b91c1c; }
+    .brand {
+      font-weight: 600; letter-spacing: .02em;
+      padding: 0 6px 0 8px; opacity: .85;
+      color: inherit; text-decoration: none; cursor: pointer;
+    }
+    .brand:hover { opacity: 1; }
+    .btn.copied { background: #16a34a; }
+    .btn.copy-failed { background: #b91c1c; }
 
-      .copy-stack { display: inline-grid; }
-      .copy-stack > .copy-state {
-        grid-area: 1 / 1;
-        display: inline-flex; align-items: center; gap: 6px;
-        justify-self: center;
-      }
-      .copy-stack > .copy-state.copied,
-      .copy-stack > .copy-state.failed { visibility: hidden; }
-      .btn.copied .copy-stack > .copy-state.normal { visibility: hidden; }
-      .btn.copied .copy-stack > .copy-state.copied { visibility: visible; }
-      .btn.copy-failed .copy-stack > .copy-state.normal { visibility: hidden; }
-      .btn.copy-failed .copy-stack > .copy-state.failed { visibility: visible; }
-      .copy-count { font-variant-numeric: tabular-nums; opacity: .75; }
-      .copy-count:empty { display: none; }
+    .copy-stack { display: inline-grid; }
+    .copy-stack > .copy-state {
+      grid-area: 1 / 1;
+      display: inline-flex; align-items: center; gap: 6px;
+      justify-self: center;
+    }
+    .copy-stack > .copy-state.copied,
+    .copy-stack > .copy-state.failed { visibility: hidden; }
+    .btn.copied .copy-stack > .copy-state.normal { visibility: hidden; }
+    .btn.copied .copy-stack > .copy-state.copied { visibility: visible; }
+    .btn.copy-failed .copy-stack > .copy-state.normal { visibility: hidden; }
+    .btn.copy-failed .copy-stack > .copy-state.failed { visibility: visible; }
+    .copy-count { font-variant-numeric: tabular-nums; opacity: .75; }
+    .copy-count:empty { display: none; }
 
-      .overlay {
-        position: fixed; inset: 0;
-        cursor: crosshair; pointer-events: auto;
-        z-index: 50; background: rgba(0,0,0,.001);
-      }
-      .outline {
-        position: fixed; pointer-events: none;
-        border: 2px solid #3b82f6; background: rgba(59,130,246,.10);
-        z-index: 55; transition: all .04s linear;
-      }
-      .outline.drop {
-        border-color: #16a34a; background: rgba(22,163,74,.12);
-        z-index: 90;
-      }
+    .overlay {
+      position: fixed; inset: 0;
+      cursor: crosshair; pointer-events: auto;
+      z-index: 50; background: rgba(0,0,0,.001);
+    }
+    .outline {
+      position: fixed; pointer-events: none;
+      border: 2px solid #3b82f6; background: rgba(59,130,246,.10);
+      z-index: 55; transition: all .04s linear;
+    }
+    .outline.drop {
+      border-color: #16a34a; background: rgba(22,163,74,.12);
+      z-index: 90;
+    }
 
-      .popup {
-        --fold-x: 18px;
-        --fold-y: 14px;
-        position: fixed;
-        background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
-        color: #1a1a0e;
-        border-radius: 0; padding: 14px; width: 260px;
-        font-size: 13px; line-height: 1.4;
-        font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
-        box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 2px 4px rgba(0,0,0,.08);
-        transform: rotate(-2deg); transform-origin: top left;
-        z-index: 110; pointer-events: auto;
-        border-bottom-right-radius: var(--fold-x) var(--fold-y);
-        corner-bottom-right-shape: bevel;
-        overflow: clip;
-      }
-      .popup::before {
-        content: "";
-        background: inherit;
-        width: var(--fold-x); height: var(--fold-y);
-        position: absolute;
-        inset: auto 0 0 auto;
-        corner-top-left-shape: bevel;
-        border-top-left-radius: calc(100% - var(--fold-y)) 100%;
-        box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.25);
-        pointer-events: none;
-      }
-      .popup .label {
-        font-size: 11px; opacity: .55; margin-bottom: 10px;
-        word-break: break-all; font-family: ui-monospace, monospace;
-        color: #1a1a0e;
-        cursor: grab; user-select: none;
-      }
-      /* Reply: quote the agent's parent comment in a lavender block inside the
-         yellow user paper - gives the visual cue "this is replying to an agent
-         post-it" without restructuring the popup. */
-      .popup.reply .label {
-        background: linear-gradient(180deg, #f0e7ff 0%, #e2d4ff 100%);
-        color: #2a1f4d;
-        padding: 8px 10px;
-        font-family: -apple-system, system-ui, sans-serif;
-        font-size: 12px;
-        opacity: 1;
-        word-break: normal;
-      }
-      .popup.dragging { transition: none; }
-      .popup.dragging .label { cursor: grabbing; }
-      .popup textarea {
-        width: 100%; background: transparent;
-        border: 0;
-        padding: 4px 0; font: inherit; resize: none;
-        field-sizing: content;
-        min-height: 36px; max-height: 240px;
-        outline: none; color: inherit;
-        caret-color: #1a1a0e;
-        overflow-y: auto;
-      }
-      .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
-      .popup .trail {
-        font-size: 10px;
-        opacity: .6;
-        margin-bottom: 6px;
-        color: #1a1a0e;
-        font-family: ui-monospace, monospace;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .popup .trail:empty { display: none; }
+    .popup {
+      --fold-x: 18px;
+      --fold-y: 14px;
+      position: fixed;
+      background: linear-gradient(180deg, #fff59d 0%, #f7e373 100%);
+      color: #1a1a0e;
+      border-radius: 0; padding: 14px; width: 260px;
+      font-size: 13px; line-height: 1.4;
+      font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+      box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 2px 4px rgba(0,0,0,.08);
+      transform: rotate(-2deg); transform-origin: top left;
+      z-index: 110; pointer-events: auto;
+      border-bottom-right-radius: var(--fold-x) var(--fold-y);
+      corner-bottom-right-shape: bevel;
+      overflow: clip;
+    }
+    .popup::before {
+      content: "";
+      background: inherit;
+      width: var(--fold-x); height: var(--fold-y);
+      position: absolute;
+      inset: auto 0 0 auto;
+      corner-top-left-shape: bevel;
+      border-top-left-radius: calc(100% - var(--fold-y)) 100%;
+      box-shadow: 0 0 calc((var(--fold-x) + var(--fold-y)) / 3) rgba(0,0,0,.25);
+      pointer-events: none;
+    }
+    .popup .label {
+      font-size: 11px; opacity: .55; margin-bottom: 10px;
+      word-break: break-all; font-family: ui-monospace, monospace;
+      color: #1a1a0e;
+      cursor: grab; user-select: none;
+    }
+    /* Reply: quote the agent's parent comment in a lavender block inside the
+       yellow user paper - gives the visual cue "this is replying to an agent
+       post-it" without restructuring the popup. */
+    .popup.reply .label {
+      background: linear-gradient(180deg, #f0e7ff 0%, #e2d4ff 100%);
+      color: #2a1f4d;
+      padding: 8px 10px;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 12px;
+      opacity: 1;
+      word-break: normal;
+    }
+    .popup.dragging .label { cursor: grabbing; }
+    .popup textarea {
+      width: 100%; background: transparent;
+      border: 0;
+      padding: 4px 0; font: inherit; resize: none;
+      field-sizing: content;
+      min-height: 36px; max-height: 240px;
+      outline: none; color: inherit;
+      caret-color: #1a1a0e;
+      overflow-y: auto;
+    }
+    .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
+    .popup .trail {
+      font-size: 10px;
+      opacity: .6;
+      margin-bottom: 6px;
+      color: #1a1a0e;
+      font-family: ui-monospace, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .popup .trail:empty { display: none; }
 
-      .marker {
-        position: fixed;
-        width: 22px; height: 22px;
-        border-radius: 50%;
-        background: #3b82f6; color: #fff;
-        font: 600 11px/22px -apple-system, system-ui, sans-serif;
-        text-align: center;
-        box-shadow: 0 2px 6px rgba(0,0,0,.25);
-        pointer-events: auto; cursor: grab;
-        z-index: 95;
-        user-select: none;
-      }
-      .marker:hover { background: #4d8ff9; }
-      .marker.agent { background: #8b5cf6; }
-      .marker.agent:hover { background: #a07bf8; }
-      .marker.dragging { cursor: grabbing; transition: none; opacity: .85; }
-      .marker.tentative {
-        background: #f7e373; color: #1a1a0e;
-        cursor: default;
-      }
-      .marker.tentative:hover { background: #fde675; }
-      .marker.working::before {
-        content: "";
-        position: absolute;
-        inset: -4px;
-        border-radius: 50%;
-        border: 2px solid transparent;
-        border-top-color: #3b82f6;
-        border-right-color: #3b82f6;
-        animation: avis-spin .8s linear infinite;
-        pointer-events: none;
-      }
-      .marker.revealing {
-        animation: avis-reveal .8s ease;
-      }
-      @keyframes avis-spin {
-        to { transform: rotate(360deg); }
-      }
-      @keyframes avis-reveal {
-        0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
-        50% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(59,130,246,.3), 0 4px 10px rgba(0,0,0,.3); }
-      }
+    .marker {
+      position: fixed;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #3b82f6; color: #fff;
+      font: 600 11px/22px -apple-system, system-ui, sans-serif;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+      pointer-events: auto; cursor: grab;
+      z-index: 95;
+      user-select: none;
+    }
+    .marker:hover { background: #4d8ff9; }
+    .marker.agent { background: #8b5cf6; }
+    .marker.agent:hover { background: #a07bf8; }
+    .marker.dragging { cursor: grabbing; opacity: .85; }
+    .marker.tentative {
+      background: #f7e373; color: #1a1a0e;
+      cursor: default;
+    }
+    .marker.tentative:hover { background: #fde675; }
+    .marker.working::before {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: #3b82f6;
+      border-right-color: #3b82f6;
+      animation: avis-spin .8s linear infinite;
+      pointer-events: none;
+    }
+    .marker.revealing {
+      animation: avis-reveal .8s ease;
+    }
+    @keyframes avis-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes avis-reveal {
+      0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+      50% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(59,130,246,.3), 0 4px 10px rgba(0,0,0,.3); }
+    }
 
-      .popup-tweaks-toggle {
-        margin-top: 10px; background: transparent; border: 0; padding: 0;
-        font: 11px/1.2 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .55;
-        cursor: pointer; user-select: none;
-        display: flex; align-items: center; gap: 6px; width: 100%;
-      }
-      .popup-tweaks-toggle:hover { opacity: 1; }
-      .popup-tweaks-toggle .popup-tweaks-leader { flex: 1; opacity: .35;
-        overflow: hidden; text-overflow: clip;
-      }
-      .popup-tweaks-toggle .popup-tweaks-chevron { font-size: 9px; transition: transform .15s; }
-      .popup-tweaks[hidden] { display: none; }
-      .popup-tweaks {
-        margin-top: 8px;
-        max-height: 240px; overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(26,26,14,.35) transparent;
-      }
-      .popup-rule {
-        margin-bottom: 8px;
-        border-top: 1px dashed rgba(26,26,14,.22);
-        padding-top: 6px;
-      }
-      .popup-rule:first-child { border-top: 0; padding-top: 0; }
-      .popup-rule-selector {
-        font: 600 11px/1.2 ui-monospace, monospace;
-        color: #1a1a0e;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-      .popup-rule-source {
-        font: italic 9px/1.2 -apple-system, system-ui, sans-serif;
-        color: #1a1a0e; opacity: .45;
-        margin-bottom: 4px;
-      }
-      .popup-decl {
-        display: grid; grid-template-columns: 76px 1fr 32px;
-        gap: 6px; align-items: center;
-        padding: 2px 0;
-      }
-      .popup-decl-edges {
-        grid-template-columns: 76px 1fr 18px;
-        align-items: stretch;
-      }
-      .popup-decl-label {
-        font: 10px/1.2 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .65;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        align-self: center;
-      }
-      .popup-decl input[type=color] {
-        width: 100%; height: 18px; padding: 0;
-        border: 1px solid rgba(26,26,14,.25); border-radius: 2px;
-        background: transparent; cursor: pointer;
-      }
-      .popup-length-input,
-      .popup-edge-all,
-      .popup-edge-input {
-        width: 100%; min-width: 0;
-        font: 10px/1.2 ui-monospace, monospace;
-        color: #1a1a0e;
-        background: transparent;
-        border: 1px solid rgba(26,26,14,.22);
-        border-radius: 2px;
-        padding: 2px 4px;
-        box-sizing: border-box;
-      }
-      .popup-length-input:focus,
-      .popup-edge-all:focus,
-      .popup-edge-input:focus {
-        outline: none; border-color: #7a6a2e;
-      }
-      .popup-edge-input { text-align: center; padding: 1px 2px; }
-      .popup-length-unit {
-        font: 10px/1 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .45;
-        text-align: left;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-      .popup-decl .popup-decl-readonly {
-        grid-column: 2 / 4;
-        font: 10px/1.2 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .45;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-      .popup-decl.touched .popup-decl-label,
-      .popup-decl.touched .popup-length-unit {
-        opacity: 1; font-weight: 600;
-      }
-      .popup-edge-link {
-        background: transparent; border: 0; padding: 0;
-        font: 13px/1 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .35; cursor: pointer;
-        align-self: center;
-      }
-      .popup-edge-link:hover { opacity: 1; }
-      .popup-edge-link[aria-pressed="true"] { opacity: .7; }
-      .popup-edge-grid {
-        display: grid;
-        grid-template-areas:
-          ".  t  ."
-          "l box r"
-          ".  b  .";
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 2px;
-        align-items: center;
-        justify-items: stretch;
-      }
-      .popup-edge-grid[data-shape="corners"] {
-        grid-template-areas:
-          "tl  .  tr"
-          " . box  ."
-          "bl  .  br";
-      }
-      .popup-edge-input[data-side="top"]    { grid-area: t; }
-      .popup-edge-input[data-side="right"]  { grid-area: r; }
-      .popup-edge-input[data-side="bottom"] { grid-area: b; }
-      .popup-edge-input[data-side="left"]   { grid-area: l; }
-      .popup-edge-input[data-corner="tl"]   { grid-area: tl; }
-      .popup-edge-input[data-corner="tr"]   { grid-area: tr; }
-      .popup-edge-input[data-corner="bl"]   { grid-area: bl; }
-      .popup-edge-input[data-corner="br"]   { grid-area: br; }
-      .popup-edge-diagram {
-        grid-area: box;
-        position: relative;
-        align-self: center; justify-self: center;
-        width: 28px; height: 22px;
-      }
-      .popup-edge-diagram .d-outer,
-      .popup-edge-diagram .d-ring,
-      .popup-edge-diagram .d-inner {
-        position: absolute; inset: 0;
-        border: 1px solid rgba(26,26,14,.22);
-        box-sizing: border-box;
-      }
-      .popup-edge-diagram .d-ring  { inset: 3px; background: rgba(26,26,14,.04); }
-      .popup-edge-diagram .d-inner { inset: 6px; background: rgba(26,26,14,.10); border: 0; border-radius: 1px; }
-      /* Edge highlights — which layer the highlight lives on depends on the property. */
-      .popup-edge-grid[data-prop="margin"][data-active="top"]         .d-outer { border-top-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="margin"][data-active="right"]       .d-outer { border-right-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="margin"][data-active="bottom"]      .d-outer { border-bottom-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="margin"][data-active="left"]        .d-outer { border-left-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="inset"][data-active="top"]          .d-outer { border-top-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="inset"][data-active="right"]        .d-outer { border-right-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="inset"][data-active="bottom"]       .d-outer { border-bottom-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="inset"][data-active="left"]         .d-outer { border-left-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="border-width"][data-active="top"]    .d-ring  { border-top-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="border-width"][data-active="right"]  .d-ring  { border-right-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="border-width"][data-active="bottom"] .d-ring  { border-bottom-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="border-width"][data-active="left"]   .d-ring  { border-left-color: #7a6a2e; }
-      .popup-edge-grid[data-prop="padding"][data-active="top"]    .d-inner { box-shadow: inset 0  1px 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="padding"][data-active="right"]  .d-inner { box-shadow: inset -1px 0 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="padding"][data-active="bottom"] .d-inner { box-shadow: inset 0 -1px 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="padding"][data-active="left"]   .d-inner { box-shadow: inset  1px 0 0 0 #7a6a2e; }
-      /* border-radius: each input rounds its own corner of the inner rect, with live value. */
-      .popup-edge-grid[data-prop="border-radius"] .d-inner {
-        border-top-left-radius:     var(--r-tl, 1px);
-        border-top-right-radius:    var(--r-tr, 1px);
-        border-bottom-right-radius: var(--r-br, 1px);
-        border-bottom-left-radius:  var(--r-bl, 1px);
-      }
-      .popup-edge-grid[data-prop="border-radius"][data-active="tl"] .d-inner { box-shadow: inset  1px  1px 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="border-radius"][data-active="tr"] .d-inner { box-shadow: inset -1px  1px 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="border-radius"][data-active="bl"] .d-inner { box-shadow: inset  1px -1px 0 0 #7a6a2e; }
-      .popup-edge-grid[data-prop="border-radius"][data-active="br"] .d-inner { box-shadow: inset -1px -1px 0 0 #7a6a2e; }
-      .popup-rule-undo {
-        background: transparent; border: 0; padding: 2px 0;
-        font: 10px/1 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .5; cursor: pointer;
-        margin-top: 2px;
-      }
-      .popup-rule-undo:hover { opacity: 1; text-decoration: underline; }
-      .popup-rule-undo[hidden] { display: none; }
-      .popup-tweaks-unreadable {
-        font: 9px/1.2 ui-monospace, monospace;
-        color: #1a1a0e; opacity: .4;
-        margin-top: 6px;
-      }
-    </style>
-    <div class="toolbar" role="toolbar" aria-label="avis">
-      <a class="brand" href="https://github.com/sryo/avis" target="_blank" rel="noopener noreferrer">avis</a>
-      <span class="annotate-stack">
-        <button class="btn" data-act="point">+ annotate</button>
-      </span>
-      <button class="btn primary" data-act="copy">
-        <span class="copy-stack">
-          <span class="copy-state normal">copy<span class="copy-count"></span></span>
-          <span class="copy-state copied">✓ copied</span>
-          <span class="copy-state failed">✗ copy failed</span>
-        </span>
-      </button>
-    </div>
-    <div class="marker-layer"></div>
+    .popup-tweaks-toggle {
+      margin-top: 10px; background: transparent; border: 0; padding: 0;
+      font: 11px/1.2 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .55;
+      cursor: pointer; user-select: none;
+      display: flex; align-items: center; gap: 6px; width: 100%;
+    }
+    .popup-tweaks-toggle:hover { opacity: 1; }
+    .popup-tweaks-toggle .popup-tweaks-leader { flex: 1; opacity: .35;
+      overflow: hidden; text-overflow: clip;
+    }
+    .popup-tweaks-toggle .popup-tweaks-chevron { font-size: 9px; }
+    .popup-tweaks {
+      margin-top: 8px;
+      max-height: 240px; overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(26,26,14,.35) transparent;
+    }
+    .popup-rule {
+      margin-bottom: 8px;
+      border-top: 1px dashed rgba(26,26,14,.22);
+      padding-top: 6px;
+    }
+    .popup-rule:first-child { border-top: 0; padding-top: 0; }
+    .popup-rule-selector {
+      font: 600 11px/1.2 ui-monospace, monospace;
+      color: #1a1a0e;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .popup-rule-source {
+      font: italic 9px/1.2 -apple-system, system-ui, sans-serif;
+      color: #1a1a0e; opacity: .45;
+      margin-bottom: 4px;
+    }
+    .popup-decl {
+      display: grid; grid-template-columns: 76px 1fr 32px;
+      gap: 6px; align-items: center;
+      padding: 2px 0;
+    }
+    .popup-decl-edges {
+      grid-template-columns: 76px 1fr 18px;
+      align-items: stretch;
+    }
+    .popup-decl-label {
+      font: 10px/1.2 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .65;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      align-self: center;
+    }
+    .popup-decl input[type=color] {
+      width: 100%; height: 18px; padding: 0;
+      border: 1px solid rgba(26,26,14,.25); border-radius: 2px;
+      background: transparent; cursor: pointer;
+    }
+    .popup-length-input,
+    .popup-edge-all,
+    .popup-edge-input {
+      width: 100%; min-width: 0;
+      font: 10px/1.2 ui-monospace, monospace;
+      color: #1a1a0e;
+      background: transparent;
+      border: 1px solid rgba(26,26,14,.22);
+      border-radius: 2px;
+      padding: 2px 4px;
+      box-sizing: border-box;
+    }
+    .popup-length-input:focus,
+    .popup-edge-all:focus,
+    .popup-edge-input:focus {
+      outline: none; border-color: #7a6a2e;
+    }
+    .popup-edge-input { text-align: center; padding: 1px 2px; }
+    .popup-length-unit {
+      font: 10px/1 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .45;
+      text-align: left;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .popup-decl .popup-decl-readonly {
+      grid-column: 2 / 4;
+      font: 10px/1.2 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .45;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .popup-decl.touched .popup-decl-label,
+    .popup-decl.touched .popup-length-unit {
+      opacity: 1; font-weight: 600;
+    }
+    .popup-edge-link {
+      background: transparent; border: 0; padding: 0;
+      font: 13px/1 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .35; cursor: pointer;
+      align-self: center;
+    }
+    .popup-edge-link:hover { opacity: 1; }
+    .popup-edge-link[aria-pressed="true"] { opacity: .7; }
+    .popup-edge-grid {
+      display: grid;
+      grid-template-areas:
+        ".  t  ."
+        "l box r"
+        ".  b  .";
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 2px;
+      align-items: center;
+      justify-items: stretch;
+    }
+    .popup-edge-grid[data-shape="corners"] {
+      grid-template-areas:
+        "tl  .  tr"
+        " . box  ."
+        "bl  .  br";
+    }
+    .popup-edge-input[data-side="top"]    { grid-area: t; }
+    .popup-edge-input[data-side="right"]  { grid-area: r; }
+    .popup-edge-input[data-side="bottom"] { grid-area: b; }
+    .popup-edge-input[data-side="left"]   { grid-area: l; }
+    .popup-edge-input[data-corner="tl"]   { grid-area: tl; }
+    .popup-edge-input[data-corner="tr"]   { grid-area: tr; }
+    .popup-edge-input[data-corner="bl"]   { grid-area: bl; }
+    .popup-edge-input[data-corner="br"]   { grid-area: br; }
+    .popup-edge-diagram {
+      grid-area: box;
+      position: relative;
+      align-self: center; justify-self: center;
+      width: 28px; height: 22px;
+    }
+    .popup-edge-diagram .d-outer,
+    .popup-edge-diagram .d-ring,
+    .popup-edge-diagram .d-inner {
+      position: absolute; inset: 0;
+      border: 1px solid rgba(26,26,14,.22);
+      box-sizing: border-box;
+    }
+    .popup-edge-diagram .d-ring  { inset: 3px; background: rgba(26,26,14,.04); }
+    .popup-edge-diagram .d-inner { inset: 6px; background: rgba(26,26,14,.10); border: 0; border-radius: 1px; }
+    /* Edge highlights — which layer the highlight lives on depends on the property. */
+    .popup-edge-grid[data-prop="margin"][data-active="top"]         .d-outer { border-top-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="margin"][data-active="right"]       .d-outer { border-right-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="margin"][data-active="bottom"]      .d-outer { border-bottom-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="margin"][data-active="left"]        .d-outer { border-left-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="inset"][data-active="top"]          .d-outer { border-top-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="inset"][data-active="right"]        .d-outer { border-right-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="inset"][data-active="bottom"]       .d-outer { border-bottom-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="inset"][data-active="left"]         .d-outer { border-left-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="border-width"][data-active="top"]    .d-ring  { border-top-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="border-width"][data-active="right"]  .d-ring  { border-right-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="border-width"][data-active="bottom"] .d-ring  { border-bottom-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="border-width"][data-active="left"]   .d-ring  { border-left-color: #7a6a2e; }
+    .popup-edge-grid[data-prop="padding"][data-active="top"]    .d-inner { box-shadow: inset 0  1px 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="padding"][data-active="right"]  .d-inner { box-shadow: inset -1px 0 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="padding"][data-active="bottom"] .d-inner { box-shadow: inset 0 -1px 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="padding"][data-active="left"]   .d-inner { box-shadow: inset  1px 0 0 0 #7a6a2e; }
+    /* border-radius: each input rounds its own corner of the inner rect, with live value. */
+    .popup-edge-grid[data-prop="border-radius"] .d-inner {
+      border-top-left-radius:     var(--r-tl, 1px);
+      border-top-right-radius:    var(--r-tr, 1px);
+      border-bottom-right-radius: var(--r-br, 1px);
+      border-bottom-left-radius:  var(--r-bl, 1px);
+    }
+    .popup-edge-grid[data-prop="border-radius"][data-active="tl"] .d-inner { box-shadow: inset  1px  1px 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="border-radius"][data-active="tr"] .d-inner { box-shadow: inset -1px  1px 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="border-radius"][data-active="bl"] .d-inner { box-shadow: inset  1px -1px 0 0 #7a6a2e; }
+    .popup-edge-grid[data-prop="border-radius"][data-active="br"] .d-inner { box-shadow: inset -1px -1px 0 0 #7a6a2e; }
+    .popup-rule-undo {
+      background: transparent; border: 0; padding: 2px 0;
+      font: 10px/1 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .5; cursor: pointer;
+      margin-top: 2px;
+    }
+    .popup-rule-undo:hover { opacity: 1; text-decoration: underline; }
+    .popup-tweaks-unreadable {
+      font: 9px/1.2 ui-monospace, monospace;
+      color: #1a1a0e; opacity: .4;
+      margin-top: 6px;
+    }
   `;
+  shadow.append(
+    style,
+    h("div", "toolbar", { role: "toolbar", "aria-label": "avis" },
+      h("a", "brand", { href: "https://github.com/sryo/avis", target: "_blank", rel: "noopener noreferrer" }, "avis"),
+      h("span", "annotate-stack", 0, h("button", "btn", { "data-act": "point" }, "+ annotate")),
+      h("button", "btn primary", { "data-act": "copy" },
+        h("span", "copy-stack", 0,
+          h("span", "copy-state normal", 0, "copy", h("span", "copy-count")),
+          h("span", "copy-state copied", 0, "✓ copied"),
+          h("span", "copy-state failed", 0, "✗ copy failed")))),
+    h("div", "marker-layer"));
 
   const pointBtn = shadow.querySelector("[data-act=point]");
   const copyBtn = shadow.querySelector("[data-act=copy]");
@@ -1136,10 +1139,8 @@
   function enterPointMode() {
     if (state.pointing) return;
     state.pointing = true;
-    overlay = document.createElement("div");
-    overlay.className = "overlay";
-    outline = document.createElement("div");
-    outline.className = "outline";
+    overlay = h("div", "overlay");
+    outline = h("div", "outline");
     outline.style.display = "none";
     shadow.appendChild(overlay);
     shadow.appendChild(outline);
@@ -1216,15 +1217,12 @@
     // Edit path bypasses point mode's keydown install - own it here, release in closePopup.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) document.addEventListener("keydown", onKeydown, true);
-    popup = document.createElement("div");
-    popup.className = "popup" + (isReply ? " reply" : "");
+    popup = h("div", "popup" + (isReply ? " reply" : ""), 0,
+      h("div", "trail"),
+      h("div", "label"),
+      h("textarea", "", { placeholder: isReply ? "reply…" : "What should change?" }),
+      h("div", "hint", 0, "click outside to save · esc to discard"));
     popup._ownsKeydown = ownsKeydown;
-    popup.innerHTML = `
-      <div class="trail"></div>
-      <div class="label"></div>
-      <textarea placeholder="${isReply ? "reply…" : "What should change?"}"></textarea>
-      <div class="hint">click outside to save · esc to discard</div>
-    `;
     popup.querySelector(".label").textContent = isReply
       ? `↪ ${(existing.comment || "").slice(0, 60)}`
       : isEdit
@@ -1266,22 +1264,11 @@
           previewSheet = createPreviewSheet();
           previewSheet.attach(selector || getSelector(targetEl));
 
-          const toggle = document.createElement("button");
-          toggle.type = "button";
-          toggle.className = "popup-tweaks-toggle";
-          const chev = document.createElement("span");
-          chev.className = "popup-tweaks-chevron";
-          const labelSpan = document.createElement("span");
-          labelSpan.textContent = `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`;
-          const leader = document.createElement("span");
-          leader.className = "popup-tweaks-leader";
-          leader.textContent = "·".repeat(60);
-          toggle.appendChild(chev);
-          toggle.appendChild(labelSpan);
-          toggle.appendChild(leader);
-
-          const tweaksRoot = document.createElement("div");
-          tweaksRoot.className = "popup-tweaks";
+          const chev = h("span", "popup-tweaks-chevron");
+          const toggle = h("button", "popup-tweaks-toggle", { type: "button" }, chev,
+            h("span", "", 0, `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`),
+            h("span", "popup-tweaks-leader", 0, "·".repeat(60)));
+          const tweaksRoot = h("div", "popup-tweaks");
 
           for (const entry of rules) {
             const rb = buildRuleBlock(entry, previewSheet.set, previewSheet.clear);
@@ -1290,10 +1277,8 @@
           }
 
           if (unreadable) {
-            const note = document.createElement("div");
-            note.className = "popup-tweaks-unreadable";
-            note.textContent = `· ${unreadable} stylesheet${unreadable === 1 ? "" : "s"} unreadable (cross-origin)`;
-            tweaksRoot.appendChild(note);
+            tweaksRoot.appendChild(h("div", "popup-tweaks-unreadable", 0,
+              `· ${unreadable} stylesheet${unreadable === 1 ? "" : "s"} unreadable (cross-origin)`));
           }
 
           let isOpen = false;
@@ -1757,10 +1742,7 @@
       return inp;
     });
 
-    const diagram = document.createElement("div");
-    diagram.className = "popup-edge-diagram";
-    diagram.innerHTML = '<div class="d-outer"><div class="d-ring"><div class="d-inner"></div></div></div>';
-    grid.appendChild(diagram);
+    grid.appendChild(h("div", "popup-edge-diagram", 0, h("div", "d-outer", 0, h("div", "d-ring", 0, h("div", "d-inner")))));
 
     const link = document.createElement("button");
     link.type = "button";
@@ -2155,8 +2137,10 @@
   document.addEventListener("click", checkNavSoon, { passive: true, capture: true });
   setInterval(checkNav, 500);
 
+  document.documentElement.appendChild(host);
+  window.__avis = api;
   if (window.__AVIS_TEST__) {
-    window.__avis._t = {
+    api._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
       getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, readDeclarations, capture,
       serializeConsoleArg, bridged,
