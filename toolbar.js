@@ -1149,7 +1149,7 @@
   function onHover(e) {
     lastHoverX = e.clientX; lastHoverY = e.clientY;
     const el = elementBeneathPoint(e.clientX, e.clientY);
-    if (!el) {
+    if (!el || el === host) {
       if (lastHoverEl !== null) { outline.style.display = "none"; lastHoverEl = null; }
       return;
     }
@@ -1329,7 +1329,7 @@
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
     });
 
-    // Marker clicks are handled by markerLayer's mousedown - let that path commit so the same gesture can also start a drag.
+    // A marker's own mousedown commits, so the same gesture can start a drag.
     function onOutside(e) {
       const path = e.composedPath();
       if (path.includes(popup)) return;

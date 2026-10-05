@@ -169,6 +169,23 @@ test("hover and pick see through the overlay to the page element", () => {
   }, { before: (w) => hitStubs(w, hits) });
 });
 
+test("hovering avis's own toolbar hides the outline instead of boxing the host", () => {
+  const hits = {};
+  return withPage(`<section><button id="cta">Start</button></section>`, ({ window, document }) => {
+    const sh = shadowOf(document);
+    const host = document.getElementById("__avis_host");
+    sh.querySelector("[data-act=point]").click();
+    const overlay = sh.querySelector(".overlay");
+    hits.doc = () => [host, document.getElementById("cta"), document.body];
+    hits.shadow = () => [overlay];
+    overlay.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, clientX: 10, clientY: 10 }));
+    assert.equal(sh.querySelector(".outline").style.display, "block");
+    hits.shadow = () => [sh.querySelector(".toolbar")];
+    overlay.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, clientX: 900, clientY: 700 }));
+    assert.equal(sh.querySelector(".outline").style.display, "none");
+  }, { before: (w) => hitStubs(w, hits) });
+});
+
 test("dropping a dragged marker on the toolbar keeps its anchor; on the page re-anchors it", () => {
   const hits = {};
   return withPage(`<h1 id="a">A</h1><h2 id="b">B</h2>`, ({ window, document, avis }) => {
