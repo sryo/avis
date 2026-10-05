@@ -80,5 +80,4 @@ test("discoverMatchedRules: default-state author rules + inline, skips pseudo an
     const { rules, unreadable } = t.discoverMatchedRules(document.querySelector(".card"));
     assert.equal(unreadable, 0);
     assert.deepEqual([...rules.map((r) => r.selectorText)], [".card", ".other, .card", ".card", "(inline)"]);
-    assert.deepEqual([...rules[1].matched], [".card"]);
   }));

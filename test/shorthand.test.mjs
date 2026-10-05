@@ -16,7 +16,7 @@ function fakeEntry(decls) {
   const find = (p) => decls.find((d) => d[0] === p) || [];
   style.getPropertyValue = (p) => find(p)[1] || "";
   style.getPropertyPriority = (p) => find(p)[2] || "";
-  return { rule: { style }, selectorText: ".x", matched: [".x"] };
+  return { rule: { style }, selectorText: ".x" };
 }
 const sides = (prefix, vals, suffix = "", prio = []) =>
   ["top", "right", "bottom", "left"].map((s, i) => [`${prefix}${s}${suffix}`, vals[i], prio[i] || ""]);

@@ -20,9 +20,8 @@
 
   const TWEAKS_OPEN_KEY = "avis:controlsOpen";
 
-  // Selectors we skip during rule discovery - the popup edits default-state rules only.
-  // Pseudo-class and pseudo-element rules don't apply at rest, so they'd be noise.
-  const PSEUDO_SELECTOR_RE = /:(hover|focus(-(?:within|visible))?|active|visited|checked|disabled|enabled|target|in-range|out-of-range|placeholder-shown)\b|::/i;
+  // Interaction states can't hold while the overlay has the pointer.
+  const PSEUDO_SELECTOR_RE = /:(hover|focus|active|visited)|::/i;
 
   function rgbToHex(str) {
     if (!str) return "#000000";
@@ -1444,52 +1443,45 @@
     editingId = null;
   }
 
-  // Rule discovery - walk document.styleSheets, return the rules whose selectors
-  // currently match `el` in its default state. Plus a synthetic entry for inline styles.
-  // Cross-origin sheets throw on `.cssRules` and are silently counted.
+  // Commas in quotes, [] or up to two levels of () don't split.
+  const splitSelectors = (s) =>
+    (s.match(/(?:\((?:\([^()]*\)|[^()])*\)|\[[^\]]*\]|"[^"]*"|'[^']*'|\\.|[^,])+/g) || []).map((p) => p.trim());
+
+  // Block conditions are checked only once a rule inside matched.
   function discoverMatchedRules(el) {
     const rules = [];
     let unreadable = 0;
-    function walk(rule) {
-      if (rule.type === 1 /* CSSStyleRule */) {
-        const selectorText = rule.selectorText || "";
-        // Split on top-level commas. Naive - `:where(a, b)` would mis-split; rare in practice.
-        const parts = selectorText.split(",").map((s) => s.trim()).filter(Boolean);
-        const matched = parts.filter((s) => {
-          if (PSEUDO_SELECTOR_RE.test(s)) return false;
-          try { return el.matches(s); } catch { return false; }
-        });
-        if (matched.length) rules.push({ rule, selectorText, matched });
-      } else if (rule.cssRules) {
-        // CSSMediaRule, CSSSupportsRule, CSSLayerBlockRule, CSSContainerRule, etc.
-        if (rule.type === 4 /* CSSMediaRule */) {
-          try { if (!matchMedia(rule.conditionText || rule.media.mediaText).matches) return; } catch {}
-        }
-        for (const sub of rule.cssRules) walk(sub);
+    const matches = (s) => { try { return el.matches(s); } catch {} };
+    function walk(rule, parent) {
+      const mark = rules.length;
+      let sel = parent;
+      // Typeless with a style: CSSNestedDeclarations.
+      if (rule.type === 1 || (parent && !rule.type && rule.style)) {
+        sel = rule.selectorText ?? parent;
+        if (parent && rule.selectorText) sel = splitSelectors(sel).map((s) => (/&/.test(s) ? s : "& " + s).replace(/&/g, `:is(${parent})`)).join(", ");
+        if (rule.style.length && matches(sel) !== false &&
+            splitSelectors(sel).some((s) => !PSEUDO_SELECTOR_RE.test(s) && matches(s))) rules.push({ rule, selectorText: sel });
       }
-    }
-    for (const sheet of document.styleSheets) {
+      if (rule.constructor.name === "CSSStartingStyleRule") return;
       let list;
-      try { list = sheet.cssRules; } catch { unreadable++; continue; }
-      if (!list) continue;
-      for (const r of list) walk(r);
+      try { list = rule.type === 3 ? rule.styleSheet?.cssRules : rule.cssRules; } catch { unreadable++; }
+      if (list) for (const r of list) walk(r, sel);
+      const q = rule.media?.mediaText;
+      if (rules.length > mark && (rule.type === 12 ? !CSS.supports(rule.conditionText) : q && !matchMedia(q).matches)) rules.length = mark;
     }
-    // Inline styles → synthetic entry, last in the list.
-    if (el.style.length > 0) {
-      rules.push({ rule: { style: el.style, parentStyleSheet: null, _inline: true }, selectorText: "(inline)", matched: ["(inline)"] });
+    for (const sheet of [...document.styleSheets, ...(document.adoptedStyleSheets || [])]) {
+      if (!ownSheets.has(sheet.ownerNode || sheet)) walk(sheet);
     }
+    if (el.style.length) rules.push({ rule: { style: el.style, _inline: true }, selectorText: "(inline)" });
     return { rules, unreadable };
   }
 
   function ruleSourceLabel(entry) {
     if (entry.rule._inline) return "inline";
     const sheet = entry.rule.parentStyleSheet;
-    if (!sheet) return "(stylesheet)";
-    if (sheet.href) {
-      try { return new URL(sheet.href).pathname.split("/").pop() || sheet.href; } catch { return sheet.href; }
-    }
+    if (sheet.href) return new URL(sheet.href).pathname.split("/").pop() || sheet.href;
     const owner = sheet.ownerNode;
-    if (owner && owner.tagName === "STYLE") return owner.id ? `<style id="${owner.id}">` : "<style>";
+    if (owner?.localName === "style") return owner.id ? `<style id="${owner.id}">` : "<style>";
     return "(stylesheet)";
   }
 
@@ -1620,6 +1612,7 @@
   // it (no `unsafe-inline` on style-src in strict mode), so we fall back to a <style>
   // appended to <head>. Either way the override targets a unique selector for the picked
   // element with !important so we beat all author rules without modifying them.
+  const ownSheets = new WeakSet();
   function createPreviewSheet() {
     const tweaks = new Map(); // property → formatted value
     let selector = null;
@@ -1630,8 +1623,9 @@
       try {
         constructable = new CSSStyleSheet();
         document.adoptedStyleSheets = [...document.adoptedStyleSheets, constructable];
+        ownSheets.add(constructable);
       } catch {
-        fallback = document.createElement("style");
+        ownSheets.add(fallback = document.createElement("style"));
         document.head.appendChild(fallback);
       }
     }
@@ -2158,7 +2152,7 @@
   if (window.__AVIS_TEST__) {
     window.__avis._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
-      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, readDeclarations, capture,
+      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, ruleSourceLabel, readDeclarations, capture,
       serializeConsoleArg, bridged,
     };
   }
