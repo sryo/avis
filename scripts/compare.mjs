@@ -43,6 +43,7 @@ export function compare(ab) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const ab = JSON.parse(readFileSync(resolve(ROOT, process.argv[2] || "bench/runs/latest.json"), "utf8"));
   if (!ab.base) { console.error("not an A/B run; rerun scripts/bench.mjs without --no-base"); process.exit(2); }
+  if (!Object.keys(ab.results).length) { console.error("run has no op results"); process.exit(2); }
   const rows = compare(ab);
   const fmt = (v, kind) => v == null ? "-" : kind === "bytes" ? String(v) : v.toFixed(3);
   console.log(`base ${ab.base.rev} vs run ${ab.run.rev} (${ab.browser}, reps ${ab.reps})`);

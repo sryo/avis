@@ -62,9 +62,14 @@
     return { f, win, doc };
   }
 
+  // A unique trailing comment per eval defeats V8's compile cache, so every rep
+  // parses and compiles toolbar.js cold, as a fresh inject into a page does.
+  let evalSeq = 0;
+  const cold = (src) => src + "\n//" + (++evalSeq);
+
   function mount(src) {
     const env = frame();
-    env.win.eval(src);
+    env.win.eval(cold(src));
     env.win.__flushRAF();
     env.avis = env.win.__avis;
     env.t = env.avis._t;
@@ -86,12 +91,18 @@
   const OPS = {
     "mount": (src) => {
       const env = frame();
-      const ms = time(() => { env.win.eval(src); env.win.__flushRAF(); });
+      env.doc.body.getBoundingClientRect();
+      // Includes the toolbar's first style recalc and layout, which a real page pays on the next frame.
+      const ms = time(() => {
+        env.win.eval(cold(src));
+        env.win.__flushRAF();
+        env.doc.getElementById("__avis_host").shadowRoot.querySelector(".toolbar").getBoundingClientRect();
+      });
       return { env, ms };
     },
     "reinject (no-op)": (src) => {
       const env = mount(src);
-      return { env, ms: time(() => env.win.eval(src)) };
+      return { env, ms: time(() => env.win.eval(cold(src))) };
     },
     "getSelector x200": (src) => {
       const env = mount(src);
@@ -145,6 +156,21 @@
         }),
       };
     },
+    "scroll reposition @100 orphans": (src) => {
+      const env = mount(src);
+      addMany(env, 100);
+      env.doc.querySelectorAll("li").forEach((li) => li.remove());
+      env.win.__flushRAF();
+      return {
+        env, ms: time(() => {
+          for (let i = 0; i < 20; i++) {
+            env.win.scrollTo(0, i * 50);
+            env.doc.dispatchEvent(new env.win.Event("scroll"));
+            env.win.__flushRAF();
+          }
+        }),
+      };
+    },
     "discoverMatchedRules x20": (src) => {
       const env = mount(src);
       const els = [...env.doc.querySelectorAll(".card li")].slice(0, 20);
@@ -188,6 +214,8 @@
   // noise lands on every source alike and A/B ratios stay meaningful.
   window.runSuite = async function (srcs, reps = 15, only) {
     const out = {};
+    const unknown = (only || []).filter((n) => !(n in OPS));
+    if (unknown.length) throw new Error("unknown op(s): " + unknown.join(", ") + "; known: " + Object.keys(OPS).join(" | "));
     const names = Object.keys(OPS).filter((n) => !only || only.includes(n));
     for (const name of names) {
       const per = srcs.map(() => ({ ms: [], bytes: undefined }));

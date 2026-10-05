@@ -4,7 +4,7 @@
 // ref in bench/baseline.json), reps interleaved in one browser so machine noise hits
 // both alike. Absolute numbers swing ±50% between runs on a busy Mac; the ratio doesn't.
 //   node scripts/bench.mjs [--base <ref>|--no-base] [--reps 15] [--src toolbar.js]
-//                          [--only "op,op"] [--out bench/runs/latest.json] [--chrome path]
+//                          [--only "op|op"] [--out bench/runs/latest.json] [--chrome path]
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
 // Then `node scripts/compare.mjs` judges the run (exit 1 on a regression).
@@ -28,7 +28,7 @@ export function parseArgs(argv) {
     else if (k === "--base") a.base = argv[++i];
     else if (k === "--no-base") a.base = null;
     else if (k === "--out") a.out = argv[++i];
-    else if (k === "--only") a.only = argv[++i].split(",").map((s) => s.trim());
+    else if (k === "--only") a.only = argv[++i].split("|").map((s) => s.trim());
     else if (k === "--chrome") a.chrome = argv[++i];
     else if (k === "--save-baseline") { a.saveBaseline = true; a.base = null; }
     else throw new Error("unknown arg " + k);
