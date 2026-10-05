@@ -1,7 +1,9 @@
 {
   "private": true,
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "bench": "node scripts/bench.mjs",
+    "bench:compare": "node scripts/compare.mjs"
   },
   "devDependencies": {
     "happy-dom": "^20"
