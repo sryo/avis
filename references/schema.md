@@ -43,7 +43,7 @@ If `sourceFile` and `reactComponents` are both missing and `text` is empty or ge
 
 ## `styleTweaks`
 
-Each entry names the CSS rule that defined the property. `selector` is that rule's selector and `source` is the stylesheet basename, `<style>` or `inline`. Edit that rule in that source rather than adding inline styles. For Tailwind or other utility CSS, use the closest utility class. `(inline)` means the original declaration lived in a `style="..."` attribute, so edit that attribute or the code that renders it. When a tweak arrives with no comment, the tweak itself is the request.
+Each entry names the CSS rule the user edited. `selector` is that rule's selector, `source` is the stylesheet basename, `<style>` or `inline`, and `before` is that rule's value. There is one entry per property: if the user edited the same property in two rules, the last edit wins, as it did in the preview. A translucent color keeps its alpha in `after` (`rgba(...)`). Edit that rule in that source rather than adding inline styles. For Tailwind or other utility CSS, use the closest utility class. `(inline)` means the original declaration lived in a `style="..."` attribute, so edit that attribute or the code that renders it. When a tweak arrives with no comment, the tweak itself is the request.
 
 ## Replies
 
