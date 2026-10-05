@@ -131,7 +131,10 @@ test("copy counts, enables and copies every page's annotations", () =>
     assert.equal(count.textContent, "2");
     btn.click();
     await new Promise((r) => setTimeout(r, 0));
-    assert.equal(JSON.parse(window.__copied[0]).length, Number(count.textContent));
+    const [lead, json] = window.__copied[0].split("\n\n");
+    assert.match(lead, /^Feedback pinned with avis on http:\/\/localhost:3000\. /);
+    assert.deepEqual(JSON.parse(json), JSON.parse(JSON.stringify(avis.summary({ console: true }))));
+    assert.equal(JSON.parse(json).length, Number(count.textContent));
   }));
 
 test("acknowledged markers get a distinct class that clears on the next status", () =>
@@ -146,4 +149,20 @@ test("acknowledged markers get a distinct class that clears on the next status",
     avis.reveal(id);
     avis.add("#b", "re-render");
     assert.ok(ui.marker(id).classList.contains("acknowledged"), "renderMarkers keeps it");
+  }));
+
+test("markers are focusable buttons; Enter opens the note", () =>
+  withUI({
+    before: (w) => w.localStorage.setItem("avis:annotations", JSON.stringify([
+      { id: "u1", comment: "tighten this", source: "user", elementPath: "#a", url: "http://localhost:3000/a" }])),
+  }, ({ ui }) => {
+    const m = ui.marker("u1");
+    assert.equal(m.getAttribute("role"), "button");
+    assert.equal(m.tabIndex, 0);
+    assert.equal(m.getAttribute("aria-label"), "annotation 1: tighten this");
+    ui.key(m, "Enter");
+    const popup = ui.shadow.querySelector(".popup");
+    assert.ok(popup, "popup opened");
+    assert.equal(popup.getAttribute("role"), "dialog");
+    assert.equal(popup.querySelector("textarea").value, "tighten this");
   }));

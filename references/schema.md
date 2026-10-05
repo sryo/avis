@@ -1,6 +1,6 @@
 # Annotation schema
 
-Field names follow the [agentation v1.1 schema](https://www.agentation.com/schema) where the concepts overlap. `__avis.annotations` returns every field; `__avis.summary()` returns the compact projection below.
+Field names follow the [agentation v1.1 schema](https://www.agentation.com/schema) where the concepts overlap. `__avis.annotations` returns every field; `__avis.summary()` returns the compact projection below. The toolbar's copy button writes a one-line instruction followed by `summary({console: true})`, so a paste works in an agent with no browser.
 
 ## `summary(opts)` projection
 

@@ -10,6 +10,8 @@ test("rgbToHex", () => {
   assert.equal(t.rgbToHex("rgba(1,2,3,0.5)"), "#010203");
   assert.equal(t.rgbToHex("#ABCDEF"), "#abcdef");
   assert.equal(t.rgbToHex("#abc"), "#aabbcc");
+  assert.equal(t.rgbToHex("#abcd"), "#aabbcc");
+  assert.equal(t.rgbToHex("#11223380"), "#112233");
   assert.equal(t.rgbToHex(""), "#000000");
   assert.equal(t.rgbToHex("red"), "#000000");
 });

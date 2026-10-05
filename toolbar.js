@@ -32,23 +32,31 @@
 
   function rgbToHex(str) {
     if (!str) return "#000000";
-    const s = String(str).trim();
+    let s = String(str).trim();
+    // hsl(), named colors and the like come back from canvas as "#rrggbb" or "rgba(...)".
+    if (!/^(#|rgba?\()/i.test(s)) s = canvasColor(s) || s;
     const m = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
     if (m) return "#" + [m[1], m[2], m[3]].map((n) => (+n).toString(16).padStart(2, "0")).join("");
-    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
-    if (/^#[0-9a-f]{3}$/i.test(s)) return "#" + s.slice(1).split("").map((c) => c + c).join("").toLowerCase();
-    return namedHex(s) || "#000000";
+    const x = s.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (!x) return "#000000";
+    const d = x[1].length < 6 ? x[1].replace(/./g, "$&$&") : x[1];
+    return "#" + d.slice(0, 6).toLowerCase();
   }
-  // Resolves named colors via canvas; null unless opaque.
+  // Canvas normalizes any color the browser parses; null if it doesn't.
   let colorCtx;
-  function namedHex(v) {
+  function canvasColor(v) {
     try {
       colorCtx = colorCtx || document.createElement("canvas").getContext("2d");
       colorCtx.fillStyle = "#010203";
       colorCtx.fillStyle = v;
-      const h = colorCtx.fillStyle;
-      return h[0] === "#" && h !== "#010203" && !/^current/i.test(v) ? h : null;
+      const c = colorCtx.fillStyle;
+      return c !== "#010203" ? c : null;
     } catch { return null; }
+  }
+  // Resolves named colors via canvas; null unless opaque.
+  function namedHex(v) {
+    const c = canvasColor(v);
+    return c && c[0] === "#" && !/^current/i.test(v) ? c : null;
   }
   // Ring buffer of recent console.* output, sliced into each annotation at capture.
   const consoleBuffer = [];
@@ -288,10 +296,14 @@
         if (raw !== storedRaw) { merge(raw); scheduleRender(); }
       }
       const next = JSON.stringify(state.annotations);
-      localStorage.setItem(STORAGE_KEY, next);
-      localStorage.setItem(REV_KEY, rev = "" + Math.random());
-      storedRaw = next;
-      persistBroken = false;
+      // Unchanged: skip the write, which would wake every other tab.
+      if (next === storedRaw) persistBroken = was;
+      else {
+        localStorage.setItem(STORAGE_KEY, next);
+        localStorage.setItem(REV_KEY, rev = "" + Math.random());
+        storedRaw = next;
+        persistBroken = false;
+      }
     } catch (e) {
       if (!was) avisWarn("[avis] persist failed - annotations won't survive a reload.", e);
     }
@@ -889,6 +901,7 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       align-self: center;
     }
+    .popup-decl-label.scrub { cursor: ew-resize; user-select: none; touch-action: none; }
     .popup-decl input[type=color] {
       width: 100%; height: 18px; padding: 0;
       border: 1px solid rgba(26,26,14,.25); border-radius: 2px;
@@ -1046,6 +1059,9 @@
       if (a.status === "working" || a.status === "acknowledged") m.classList.add(a.status);
       m.textContent = String(i + 1);
       m.title = a.comment;
+      m.tabIndex = 0;
+      m.setAttribute("role", "button");
+      m.setAttribute("aria-label", `annotation ${i + 1}: ${a.comment}`);
       m.dataset.annotationId = a.id;
       let target = m._targetEl;
       if (!target || !target.isConnected || m._elementPath !== a.elementPath || !target.matches(a.elementPath)) target = resolveTarget(a.elementPath);
@@ -1133,7 +1149,13 @@
   function onKeydown(e) {
     // Staged: a marker drag owns Escape (onMarkerDragKey), then the popup, then point mode.
     if (e.key !== "Escape" || dragState) return;
-    if (popup) {
+    // An edited tweak field reverts first; the next Escape closes the popup.
+    const field = e.composedPath()[0];
+    if (popup && field._focusValue != null && field.value !== field._focusValue) {
+      field.value = field._focusValue;
+      field.dispatchEvent(new Event("change"));
+      field.blur();
+    } else if (popup) {
       closePopup();
       if (overlay) overlay.style.pointerEvents = "auto";
       // Replay hover so the outline reappears without waiting for a mousemove.
@@ -1186,10 +1208,10 @@
     // Outside point mode the popup owns the Escape listener.
     const ownsKeydown = !state.pointing;
     if (ownsKeydown) window.addEventListener("keydown", onKeydown, true);
-    popup = h("div", "popup" + (isReply ? " reply" : ""), 0,
+    popup = h("div", "popup" + (isReply ? " reply" : ""), { role: "dialog", "aria-label": isReply ? "reply" : "annotation" },
       h("div", "trail"),
       h("div", "label"),
-      h("textarea", 0, { placeholder: isReply ? "reply…" : "What should change?" }),
+      h("textarea", 0, { placeholder: isReply ? "reply…" : "What should change?", "aria-label": "comment" }),
       h("div", "hint", 0, "click outside to save · esc to discard"));
     popup._ownsKeydown = ownsKeydown;
     popup.querySelector(".label").textContent = isReply
@@ -1573,10 +1595,15 @@
     };
   }
 
-  const textInput = (cls, attrs) => h("input", cls, { type: "text", spellcheck: "false", ...attrs });
+  function textInput(cls, attrs) {
+    const input = h("input", cls, { type: "text", spellcheck: "false", ...attrs });
+    input.addEventListener("focus", () => { input._focusValue = input.value; });
+    return input;
+  }
 
-  // Enter commits. With `read`, ArrowUp/Down hand read() ± step() (Shift = 10x) to write().
-  function stepKeys(input, step, read, write) {
+  // Enter commits. With `read`, ArrowUp/Down hand read() ± step() (Shift = 10x) to write(),
+  // and so does dragging `label` sideways, a step per 4px.
+  function stepKeys(input, step, read, write, label) {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); return; }
       const dir = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
@@ -1586,24 +1613,43 @@
       e.preventDefault();
       write(round3(cur + dir * step() * (e.shiftKey ? 10 : 1)));
     });
+    if (!label) return;
+    label.classList.add("scrub");
+    label.addEventListener("pointerdown", (e) => {
+      const start = read();
+      if (Number.isNaN(start)) return;
+      e.preventDefault();
+      try { label.setPointerCapture(e.pointerId); } catch {}
+      const ac = new AbortController();
+      let last = start;
+      label.addEventListener("pointermove", (ev) => {
+        const n = round3(start + Math.round((ev.clientX - e.clientX) / 4) * step() * (ev.shiftKey ? 10 : 1));
+        if (n !== last) write(last = n);
+      }, { signal: ac.signal });
+      for (const t of ["pointerup", "pointercancel"]) label.addEventListener(t, () => ac.abort(), { signal: ac.signal });
+    });
   }
 
   // Each control fills `row` after its label and returns setValue.
   function lengthControl(row, decl, onChange) {
     const unit = decl.kind === "length" ? decl.unit : "";
-    const input = textInput("popup-length-input", { inputmode: "decimal" });
+    const input = textInput("popup-length-input", { inputmode: "decimal", "aria-label": decl.property });
     input.value = decl.value;
     row.append(input, h("span", "popup-length-unit", 0, unit));
-    function emit() {
+    // Typing previews as it goes; change also normalizes the field.
+    function emit(normalize) {
       const p = parseDimension(input.value, unit);
       if (!p) return;
       if (p.raw) return onChange(p.raw);
-      onChange(input.value = unit ? round3(p.n) + p.unit : String(round3(p.n)));
+      const v = unit ? round3(p.n) + p.unit : String(round3(p.n));
+      if (normalize) input.value = v;
+      onChange(v);
     }
     let p;
-    input.addEventListener("change", emit);
+    input.addEventListener("input", () => emit(false));
+    input.addEventListener("change", () => emit(true));
     stepKeys(input, () => decl.step || 1, () => (p = parseDimension(input.value, unit)) ? +p.n : NaN,
-      (n) => { input.value = unit ? n + p.unit : String(n); emit(); });
+      (n) => { input.value = unit ? n + p.unit : String(n); emit(true); }, row.firstChild);
     return (v) => { input.value = v; };
   }
 
@@ -1612,10 +1658,10 @@
     const corners = decl.shape === "corners";
     const keys = corners ? ["tl", "tr", "br", "bl"] : ["top", "right", "bottom", "left"];
     let values = decl.values.slice(), unit = decl.unit;
-    const allInput = textInput("popup-edge-all");
+    const allInput = textInput("popup-edge-all", { "aria-label": decl.property });
     const grid = h("div", "popup-edge-grid", { "data-shape": decl.shape, "data-prop": decl.property, "data-active": "" });
     const inputs = keys.map((key, i) => {
-      const inp = textInput("popup-edge-input", { inputmode: "decimal", [corners ? "data-corner" : "data-side"]: key });
+      const inp = textInput("popup-edge-input", { inputmode: "decimal", "aria-label": decl.property + " " + key, [corners ? "data-corner" : "data-side"]: key });
       inp.style.gridArea = key;
       // Focus drives the diagram highlight; change parses one cell.
       inp.addEventListener("focus", () => { grid.dataset.active = key; });
@@ -1665,20 +1711,28 @@
       allInput.value = formatShorthand4(values, unit);
       if (ok) emit();
     });
-    stepKeys(allInput);
+    // Linked stepping moves every side by the same amount, keeping their offsets.
+    stepKeys(allInput, () => unitStep(unit), () => values[0], (n) => {
+      const d = n - values[0];
+      values = values.map((v) => round3(v + d));
+      allInput.value = formatShorthand4(values, unit);
+      inputs.forEach((inp, i) => { inp.value = String(values[i]); });
+      emit();
+    }, row.firstChild);
     link.addEventListener("click", () => setMode(row.dataset.mode !== "linked"));
     autoMode();
     return (v) => { take(v); autoMode(); };
   }
 
   function colorControl(row, decl, onChange) {
-    const input = h("input", 0, { type: "color" });
+    const input = h("input", 0, { type: "color", "aria-label": decl.property });
     const badge = h("span", "popup-length-unit");
     const setValue = (v) => { input.value = rgbToHex(v); badge.textContent = input.value; };
     setValue(decl.value);
-    // The picker has no alpha; keep the original's.
+    // The picker has no alpha; keep the original's, from rgba()/hsla()/"/ a" or #rgba/#rrggbbaa.
     const alpha = decl.value.match(/(?:(?:[^,]*,){3}|\/)\s*([\d.]+)(%?)\s*\)$/);
-    const a = alpha ? alpha[1] / (alpha[2] ? 100 : 1) : 1;
+    const hx = decl.value.trim().match(/^#(?:[0-9a-f]{3}([0-9a-f])|[0-9a-f]{6}([0-9a-f]{2}))$/i);
+    const a = alpha ? alpha[1] / (alpha[2] ? 100 : 1) : hx ? round3(parseInt(hx[2] || hx[1] + hx[1], 16) / 255) : 1;
     input.addEventListener("input", () => {
       const v = input.value;
       badge.textContent = v;
@@ -1706,6 +1760,12 @@
       h("div", "popup-rule-source", 0, source));
     const undoBtn = h("button", "popup-rule-undo", { type: "button", hidden: "" }, "↩ undo tweaks");
     const touch = (info, v) => {
+      // Back to the page's value: no tweak.
+      if (v === info.decl.value) {
+        info.row.classList.remove("touched");
+        undoBtn.hidden = !block.querySelector(".touched");
+        return onClear(info.decl.property);
+      }
       info.row.classList.add("touched");
       undoBtn.hidden = false;
       onTweak(info.decl, v);
@@ -1762,6 +1822,20 @@
       moved: false,
     };
     markerDragListeners("addEventListener");
+  });
+  function openMarker(m) {
+    const ann = m && findAnnotation(m.dataset.annotationId);
+    if (!ann) return;
+    const r = m.getBoundingClientRect();
+    openPopup(null, r.left, r.bottom, ann);
+  }
+  // Enter or Space on a focused marker opens it, like a click.
+  markerLayer.addEventListener("keydown", (e) => {
+    const id = e.target.dataset.annotationId;
+    if (!id || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    if (popup && popup._commit) popup._commit();
+    openMarker(markerFor(id));
   });
   function markerDragListeners(f) {
     document[f]("mousemove", onMarkerDragMove);
@@ -1820,13 +1894,7 @@
     marker.classList.remove("dragging");
     if (dropOutline) dropOutline.remove();
 
-    if (!moved) {
-      const ann = findAnnotation(id);
-      if (!ann) return;
-      const r = marker.getBoundingClientRect();
-      openPopup(null, r.left, r.bottom, ann);
-      return;
-    }
+    if (!moved) return openMarker(marker);
 
     marker.style.pointerEvents = "none";
     const target = elementBeneathPoint(e.clientX, e.clientY);
@@ -1853,9 +1921,13 @@
   });
 
   copyBtn.addEventListener("click", async () => {
-    const json = JSON.stringify(state.annotations, null, 2);
+    // Pasted into an agent with no browser access, so it says what to do with the list.
+    const text = `Feedback pinned with avis on ${location.origin}. Find each element's source ` +
+      "(sourceFile, reactComponents, then text/elementPath) and apply its comment; " +
+      "styleTweaks are CSS edits to the rule at selector/source.\n\n" +
+      JSON.stringify(api.summary({ console: true }), null, 2);
     let ok = true;
-    try { await navigator.clipboard.writeText(json); }
+    try { await navigator.clipboard.writeText(text); }
     catch { ok = false; }
     copyBtn.classList.add(ok ? "copied" : "copy-failed");
     setTimeout(() => copyBtn.classList.remove(ok ? "copied" : "copy-failed"), 1400);

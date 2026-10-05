@@ -197,3 +197,68 @@ test("integer-only numbers step by 1, fractional ones by 0.01", () =>
     assert.equal(t.inferControl("1", "border-image-outset").step, 0.01);
     assert.equal(t.inferControl("0", "border-top-width").step, 0.01);
   }));
+
+const LEN = `<style>.c { gap: 8px; padding: 4px }</style><div class="c" id="t">x</div>`;
+const lenInput = (ui) => ui.shadow.querySelector(".popup-length-input");
+const sheetText = (window) => [...window.document.adoptedStyleSheets, ...window.document.querySelectorAll("style")]
+  .map((s) => s.cssRules ? [...s.cssRules].map((r) => r.cssText).join(" ") : s.textContent).join(" ");
+
+test("typing previews before the field commits", () =>
+  withPage(LEN, ({ window, ui }) => {
+    ui.pick();
+    const inp = lenInput(ui);
+    inp.value = "12";
+    inp.dispatchEvent(new window.Event("input"));
+    assert.match(sheetText(window), /gap: 12px !important/);
+    assert.equal(inp.value, "12", "the field is not rewritten mid-typing");
+  }));
+
+test("Escape in an edited field reverts it and keeps the popup; the next Escape closes", () =>
+  withPage(LEN, ({ window, avis, ui }) => {
+    ui.pick();
+    const inp = lenInput(ui);
+    inp.dispatchEvent(new window.Event("focus"));
+    inp.value = "20";
+    inp.dispatchEvent(new window.Event("input"));
+    const esc = () => inp.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true, cancelable: true }));
+    esc();
+    assert.equal(inp.value, "8px");
+    assert.ok(ui.shadow.querySelector(".popup"), "popup still open");
+    assert.equal(ui.shadow.querySelector(".popup-decl.touched"), null, "back to the page value is no tweak");
+    ui.commit("c");
+    assert.equal(plain(avis.summary())[0].styleTweaks, undefined);
+  }));
+
+test("dragging a property label scrubs its value", () =>
+  withPage(LEN, ({ window, avis, ui }) => {
+    ui.pick();
+    const label = lenInput(ui).parentNode.querySelector(".popup-decl-label");
+    const ptr = (type, x, extra = {}) => label.dispatchEvent(new window.PointerEvent(type, { bubbles: true, clientX: x, pointerId: 1, ...extra }));
+    ptr("pointerdown", 100);
+    ptr("pointermove", 112);
+    ptr("pointermove", 104, { shiftKey: true });
+    ptr("pointerup", 104);
+    ptr("pointermove", 200);
+    assert.equal(lenInput(ui).value, "18px");
+    ui.commit("c");
+    assert.equal(plain(avis.summary())[0].styleTweaks[0].after, "18px");
+  }));
+
+test("arrow keys on a linked edge field move every side together", () =>
+  withPage(`<style>.c { padding: 8px 16px }</style><div class="c" id="t">x</div>`, ({ window, avis, ui }) => {
+    ui.pick();
+    ui.shadow.querySelector('.popup-decl-edges .popup-edge-link').click();
+    const all = ui.shadow.querySelector(".popup-edge-all");
+    all.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    assert.equal(all.value, "9px 17px");
+    ui.commit("c");
+    assert.equal(plain(avis.summary())[0].styleTweaks[0].after, "9px 17px");
+  }));
+
+test("an 8-digit hex color keeps its alpha", () =>
+  withPage(`<style>#t { color: #ff000080 }</style><div id="t">x</div>`, ({ avis, ui }) => {
+    ui.pick();
+    ui.setColor(ui.blocks()[0], "#00ff00");
+    ui.commit("c");
+    assert.equal(plain(avis.summary())[0].styleTweaks[0].after, "rgba(0, 255, 0, 0.502)");
+  }));

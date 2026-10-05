@@ -191,3 +191,14 @@ test("persistOK() probes without rewriting the store or bumping its revision", a
   assert.equal(window.localStorage.getItem("avis:rev"), rev);
   await window.happyDOM.close();
 });
+
+test("persist() skips the write when nothing changed", () =>
+  withPage(({ window, avis }) => {
+    const rev = () => window.localStorage.getItem("avis:rev");
+    avis.clear();
+    const r = rev();
+    avis.clear();
+    assert.equal(rev(), r, "second clear left the revision, so other tabs don't wake");
+    avis.add("#cta", "x");
+    assert.notEqual(rev(), r);
+  }));
