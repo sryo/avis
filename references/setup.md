@@ -27,6 +27,7 @@ perch reads `script_path` server-side and runs it, then `script`, in a single fu
 - **Nonstandard install path**: if `script_path` errors, `Read` the `toolbar.js` next to SKILL.md and pass its contents followed by `return __avis.info()` as `script`.
 - **Already mounted**: `toolbar.js` returns early when `window.__avis` exists, so re-running the call is safe and just reports `info()`.
 - **`persistOK: false`**: `localStorage` writes are failing (quota, private mode). Annotations live until the page reloads.
+- **Several tabs on one origin** share one annotation list: each tab's writes merge with the others', and an open tab picks up another tab's changes.
 
 ## Installing perch
 
