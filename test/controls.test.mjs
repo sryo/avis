@@ -194,4 +194,6 @@ test("integer-only numbers step by 1, fractional ones by 0.01", () =>
     assert.equal(t.inferControl("1", "opacity").step, 0.01);
     assert.equal(t.inferControl("1", "flex-grow").step, 0.01);
     assert.equal(t.inferControl("1.5", "line-height").step, 0.01);
+    assert.equal(t.inferControl("1", "border-image-outset").step, 0.01);
+    assert.equal(t.inferControl("0", "border-top-width").step, 0.01);
   }));

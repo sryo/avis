@@ -2,10 +2,12 @@
 // window.__avis for an AI agent to read back, edit, and reply to.
 
 (function () {
-  const VERSION = "2.0.0";
-  if (window.__avis) return;
+  const VERSION = "2.1.0";
+  const hosted = document.getElementById("__avis_host");
+  // A stub stands down once the owning world's host is gone.
+  if (window.__avis && (hosted || !window.__avis.info().mountedElsewhere)) return;
   // Host but no __avis: another JS world (page <script>, isolated world) owns the toolbar.
-  if (document.getElementById("__avis_host")) {
+  if (hosted) {
     window.__avis = { VERSION, info: () => ({ v: VERSION, mountedElsewhere: true }) };
     return;
   }
@@ -1104,7 +1106,7 @@
       m.className = "marker";
       if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
-      if (a.status) m.classList.add(a.status);
+      if (a.status === "working" || a.status === "acknowledged") m.classList.add(a.status);
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
@@ -1443,7 +1445,7 @@
   function closePopup() {
     if (popup) {
       if (popup._previewSheet) popup._previewSheet.detach();
-      popup._endDrag();
+      if (popup._endDrag) popup._endDrag();
       if (popup._onOutside) document.removeEventListener("pointerdown", popup._onOutside, true);
       if (popup._ownsKeydown) window.removeEventListener("keydown", onKeydown, true);
       popup.remove();
@@ -1612,7 +1614,7 @@
     }
     if (/^-?\d+(?:\.\d+)?$/.test(v)) {
       const n = parseFloat(v);
-      const isFractional = !Number.isInteger(n) || (n >= 0 && n <= 1 && !/index|order|count|orphans|widows/.test(property));
+      const isFractional = !Number.isInteger(n) || (n >= 0 && n <= 1 && !/^(z-index|order|orphans|widows|.*-count)$/.test(property));
       return { kind: "number", step: isFractional ? 0.01 : 1 };
     }
     return { kind: "readonly" };
@@ -2068,7 +2070,7 @@
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
 
-  // Feeds clickChain. textContent (vs innerText) avoids forcing layout reflow on every page click.
+  // Feeds clickChain. Reads text nodes only up to the label's length: no layout, no whole-subtree string.
   document.addEventListener("mousedown", (e) => {
     const el = e.target;
     if (!el || el.nodeType !== 1 || host.contains(el)) return;

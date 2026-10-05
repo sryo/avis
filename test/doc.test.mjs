@@ -33,6 +33,13 @@ test("frontmatter description carries the when-to-suggest guidance", () => {
   assert.doesNotMatch(read("SKILL.md"), /^## When to suggest/m);
 });
 
+test("SKILL.md's window.__avis line lists exactly the mounted API", () => {
+  const line = read("SKILL.md").split("\n").find((l) => l.startsWith("`window.__avis`:"));
+  const listed = [...line.slice(16).matchAll(/`([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+  assert.deepEqual(listed.filter((n) => !(n in avis)), []);
+  assert.deepEqual(Object.keys(avis).filter((k) => k !== "_t" && !listed.includes(k)), []);
+});
+
 for (const file of ["SKILL.md", ...REFS]) {
   test(`${file}: every __avis.<name> exists on the mounted API`, () => {
     const names = new Set([...read(file).matchAll(/__avis\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));

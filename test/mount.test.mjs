@@ -95,6 +95,16 @@ test("mounted by another world: re-running defines an __avis whose info() says s
     assert.deepEqual({ ...window.__avis.info() }, { v, mountedElsewhere: true });
   }));
 
+test("a stub world mounts for real once the owning world's host is gone", () =>
+  withPage(({ window, document }) => {
+    delete window.__avis;
+    reinject(window);
+    document.getElementById("__avis_host").remove();
+    reinject(window);
+    assert.equal(typeof window.__avis.add, "function");
+    assert.ok(document.getElementById("__avis_host"));
+  }));
+
 test("owning world: re-running keeps the real __avis", () =>
   withPage(({ window, avis }) => {
     reinject(window);
