@@ -43,4 +43,4 @@ Needs [perch](https://github.com/sryo/perch). Install, permissions and fallbacks
 
 `window.__avis`: `info()`, `summary(opts)`, `annotations` (full, heavy), `pageUrl`, `VERSION`, `reveal(id)`, `acknowledge(ids)`, `markWorking(ids)`, `unmarkWorking(ids)`, `resolve(ids)`, `dismiss(ids, reason)`, `add(selector, comment, {replyTo})`, `clear()`, `persistOK()`.
 
-Markers and counts only show annotations for the current `location.pathname`; `summary()` and `annotations` span all pages.
+Markers and `info().onPage` only cover the current `location.pathname`; `summary()`, `annotations` and the copy button span all pages.
