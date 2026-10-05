@@ -22,7 +22,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `sourceFile` | `"path:line"` from React `_debugSource`. React dev builds only; production strips it. |
 | `reactComponents` | `"<App> <Layout> <NavItem>"`, any React build. Minified and wrapper names are skipped. |
 | `element` | Tag name of the pinned element. |
-| `elementPath` | Unique CSS selector: `data-testid`, `data-test`, `id`, `aria-label`, then a short class/nth-of-type path. |
+| `elementPath` | Unique CSS selector: `data-testid`, `data-test`, `id`, `aria-label`, then a class/nth-of-type path, anchored at `body >` when a short one isn't unique (`body` itself is `body`). |
 | `text` | Visible text of the element (120 chars max). |
 | `nearbyText` | Parent's text when it differs (80 chars max). |
 | `parentContext` | `{element, text, accessibility}` of the parent. The fallback when the pinned node is unlabeled. |

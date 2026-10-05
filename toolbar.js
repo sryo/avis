@@ -344,8 +344,7 @@
       if (typeof orig !== "function") continue;
       console[lvl] = function (...args) {
         try {
-          const msg = args.map(serializeConsoleArg).join(" ");
-          document.dispatchEvent(new CustomEvent("avis:console", { detail: JSON.stringify({ level: lvl, msg }) }));
+          document.dispatchEvent(new CustomEvent("avis:console", { detail: lvl + ":" + args.map(serializeConsoleArg).join(" ") }));
         } catch {}
         return orig.apply(this, args);
       };
@@ -360,7 +359,8 @@
   }
 
   document.addEventListener("avis:console", (e) => {
-    try { const m = JSON.parse(e.detail); pushConsole(m.level, m.msg); } catch {}
+    const m = /^(log|warn|error):([^]*)/.exec(e.detail);
+    if (m) pushConsole(m[1], m[2]);
   });
   let reactReply = null;
   document.addEventListener("avis:react-result", (e) => { reactReply = e.detail; });
@@ -407,10 +407,8 @@
   }
 
   const isUnique = (sel, el) => {
-    try {
-      const matches = document.querySelectorAll(sel);
-      return matches.length === 1 && matches[0] === el;
-    } catch { return false; }
+    try { return document.querySelector(sel) === el && document.querySelectorAll(sel).length === 1; }
+    catch { return false; }
   };
 
   function getSelector(el) {
@@ -438,8 +436,7 @@
     // Path cascade - short-circuit at the first depth that's already unique.
     const parts = [];
     let cur = el;
-    let depth = 0;
-    while (cur && cur !== document.body && cur.nodeType === 1 && depth < 4) {
+    while (cur && cur !== document.body && cur.nodeType === 1) {
       let part = cur.tagName.toLowerCase();
       if (cur.classList && cur.classList.length) {
         const cls = Array.from(cur.classList)
@@ -457,8 +454,8 @@
       const candidate = parts.join(" > ");
       if (isUnique(candidate, el)) return candidate;
       cur = cur.parentElement;
-      depth++;
     }
+    if (cur) parts.unshift("body");
     return parts.join(" > ");
   }
 
@@ -1050,18 +1047,18 @@
     pointBtn.classList.toggle("active", state.pointing);
     pointBtn.textContent = state.pointing ? "done" : "+ annotate";
     copyBtn.disabled = !total;
-    renderMarkers();
+    renderMarkers(currentPageAnnotations());
   }
 
-  function renderMarkers() {
-    markerLayer.replaceChildren();
-    const currentPage = currentPageAnnotations();
+  function renderMarkers(currentPage) {
     const list = tentativeAnnotation
       ? [...currentPage, tentativeAnnotation]
       : currentPage;
+    const old = new Map();
+    for (const m of markerLayer.children) old.set(m.dataset.annotationId, m);
     const stackByEl = new Map();
-    list.forEach((a, i) => {
-      const m = document.createElement("div");
+    markerLayer.replaceChildren(...list.map((a, i) => {
+      const m = old.get(a.id) || document.createElement("div");
       m.className = "marker";
       if (a.source === "agent") m.classList.add("agent");
       if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
@@ -1069,11 +1066,10 @@
       m.textContent = String(i + 1);
       m.title = a.comment;
       m.dataset.annotationId = a.id;
-      const target = resolveTarget(a.elementPath);
+      let target = m._targetEl;
+      if (!target || !target.isConnected || m._elementPath !== a.elementPath || !target.matches(a.elementPath)) target = resolveTarget(a.elementPath);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
-      // Stash absolute page coords from capture-time geometry as an orphan
-      // fallback for positionMarkers when the live element can't be resolved.
       const bb = a.boundingBox;
       const vp = a.viewport;
       if (bb && vp) {
@@ -1083,17 +1079,13 @@
       const stackIdx = target ? (stackByEl.get(target) || 0) : 0;
       m._stackIndex = stackIdx;
       if (target) stackByEl.set(target, stackIdx + 1);
-      markerLayer.appendChild(m);
-    });
-    positionMarkers();
-    // Re-attach in-flight drag to the freshly mounted marker DOM.
-    if (dragState) {
-      const live = markerLayer.querySelector(`.marker[data-annotation-id="${dragState.id}"]`);
-      if (live) {
-        dragState.marker = live;
-        if (dragState.moved) live.classList.add("dragging");
+      if (dragState && dragState.id === a.id) {
+        dragState.marker = m;
+        if (dragState.moved) m.classList.add("dragging");
       }
-    }
+      return m;
+    }));
+    positionMarkers();
   }
 
   // rAF-batched: scroll events firing 60×/sec collapse into one read/write pass.
@@ -1111,42 +1103,27 @@
           m._targetEl = resolveTarget(m._elementPath);
         }
         const el = m._targetEl;
-        if (!el) { reads.push(null); return; }
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 && r.height <= 0) { reads.push(null); return; }
-        reads.push(r);
+        const r = el && el.getBoundingClientRect();
+        // Gone or hidden: the capture-time spot, read before any write.
+        reads.push(r && (r.width > 0 || r.height > 0) ? { x: r.right - 11, y: r.top - 11 }
+          : m._orphanAbsX === undefined ? null : { x: m._orphanAbsX - scrollX, y: m._orphanAbsY - scrollY });
       });
       markers.forEach((m, i) => {
-        const r = reads[i];
-        let left, top;
-        if (r) {
-          left = Math.round(r.right - 11) + "px";
-          top = Math.round(r.top - 11 + (m._stackIndex || 0) * 26) + "px";
-        } else if (m._orphanAbsX !== undefined) {
-          // Element is gone - fall back to the saved capture-time position so
-          // the comment doesn't silently vanish.
-          left = Math.round(m._orphanAbsX - window.scrollX) + "px";
-          top = Math.round(m._orphanAbsY - window.scrollY + (m._stackIndex || 0) * 26) + "px";
-        } else {
-          return;
-        }
+        const p = reads[i];
+        if (!p) return;
+        const left = Math.round(p.x) + "px";
+        const top = Math.round(p.y + (m._stackIndex || 0) * 26) + "px";
         if (m.style.left !== left) m.style.left = left;
         if (m.style.top !== top) m.style.top = top;
       });
     });
   }
 
-  // Hide our chrome so elementFromPoint sees the host page underneath.
-  function elementBeneathPoint(clientX, clientY, hideOutline = true) {
-    const ov = overlay && overlay.style.pointerEvents;
-    if (overlay) overlay.style.pointerEvents = "none";
-    if (hideOutline && outline) outline.style.display = "none";
-    host.style.pointerEvents = "none";
-    const el = document.elementFromPoint(clientX, clientY);
-    host.style.pointerEvents = "";
-    if (overlay) overlay.style.pointerEvents = ov || "auto";
-    if (hideOutline && outline) outline.style.display = "block";
-    return el;
+  // Over our chrome (not the overlay) this is host: no target.
+  function elementBeneathPoint(x, y) {
+    const els = document.elementsFromPoint(x, y);
+    if (els[0] === host && shadow.elementsFromPoint(x, y)[0] !== overlay) return host;
+    return els.find((el) => el !== host) || null;
   }
 
   function enterPointMode() {
@@ -1198,16 +1175,13 @@
     }
     if (el === lastHoverEl) return;
     lastHoverEl = el;
-    placeOutline(outline, el);
+    showBox(outline, el);
   }
-  function placeOutline(o, el) {
-    const r = el.getBoundingClientRect(), s = o.style;
-    s.display = "block";
-    s.left = r.left + "px";
-    s.top = r.top + "px";
-    s.width = r.width + "px";
-    s.height = r.height + "px";
-  }
+
+  const showBox = (o, el) => {
+    const r = el.getBoundingClientRect();
+    Object.assign(o.style, { display: "block", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  };
 
   function onPick(e) {
     e.preventDefault();
@@ -1985,12 +1959,12 @@
     dragState.marker.style.top = (e.clientY - 11) + "px";
 
     dragState.marker.style.pointerEvents = "none";
-    const target = elementBeneathPoint(e.clientX, e.clientY, false);
+    const target = elementBeneathPoint(e.clientX, e.clientY);
     dragState.marker.style.pointerEvents = "auto";
 
     if (target && target !== host && target !== dragState.lastTarget) {
       dragState.lastTarget = target;
-      placeOutline(dragState.dropOutline, target);
+      showBox(dragState.dropOutline, target);
     } else if (!target || target === host) {
       dragState.dropOutline.style.display = "none";
       dragState.lastTarget = null;
@@ -2014,7 +1988,7 @@
     }
 
     marker.style.pointerEvents = "none";
-    const target = elementBeneathPoint(e.clientX, e.clientY, false);
+    const target = elementBeneathPoint(e.clientX, e.clientY);
     marker.style.pointerEvents = "auto";
 
     if (!target || target === host) {
@@ -2051,14 +2025,15 @@
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
 
-  // Capture real clicks (outside the toolbar's shadow root) so each annotation
-  // records the trigger chain that led to its state - overlays, menus, modals.
-  // textContent (vs innerText) avoids forcing layout reflow on every page click.
+  // Feeds clickChain. textContent (vs innerText) avoids forcing layout reflow on every page click.
   document.addEventListener("mousedown", (e) => {
     const el = e.target;
     if (!el || el.nodeType !== 1 || host.contains(el)) return;
     const tag = el.tagName.toLowerCase();
-    const txt = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let txt = "";
+    while (txt.length < 42 && w.nextNode()) txt = (txt + w.currentNode.data).replace(/\s+/g, " ");
+    txt = txt.trim().slice(0, 40);
     clickChain.push({ target: txt ? `<${tag}> "${txt}"` : `<${tag}>`, ts: Date.now() });
     if (clickChain.length > PRIOR_CLICKS_MAX) clickChain.shift();
   }, { passive: true, capture: true });
@@ -2072,9 +2047,10 @@
   }
   // Polls location instead of patching history: injected into an isolated world (perch
   // eval_js on Chrome), a history patch never sees the page's own pushState calls.
+  // Late-mounting orphan targets (async routes) re-render too.
   let lastHref = location.href;
   function checkNav() {
-    if (location.href === lastHref) return;
+    if (location.href === lastHref && ![...markerLayer.children].some((m) => !m._targetEl && resolveTarget(m._elementPath))) return;
     lastHref = location.href;
     scheduleRender();
   }

@@ -19,7 +19,13 @@ export function mount(opts = {}) {
   const { document } = window;
   if (opts.html) document.body.innerHTML = opts.html;
   if (opts.test !== false) window.__AVIS_TEST__ = true;
+  // happy-dom has no hit testing: nothing is under any point unless a test says so,
+  // by stubbing elementFromPoint (one hit) or elementsFromPoint (the whole stack).
   if (typeof document.elementFromPoint !== "function") document.elementFromPoint = () => null;
+  if (typeof document.elementsFromPoint !== "function") {
+    document.elementsFromPoint = (x, y) => { const e = document.elementFromPoint(x, y); return e ? [e] : []; };
+  }
+  if (typeof window.ShadowRoot.prototype.elementsFromPoint !== "function") window.ShadowRoot.prototype.elementsFromPoint = () => [];
   if (!window.CSS || typeof window.CSS.escape !== "function") {
     window.CSS = Object.assign(window.CSS || {}, { escape: (s) => String(s).replace(/[^\w-]/g, (c) => "\\" + c) });
   }

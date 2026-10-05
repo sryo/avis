@@ -11,7 +11,7 @@ async function withPicker(fn) {
   const m = mount({
     html: HTML,
     before: (w) => {
-      w.document.elementFromPoint = () => w.document.getElementById("cta");
+      w.document.elementsFromPoint = () => [w.document.getElementById("cta")];
       // happy-dom's innerText calls window.getComputedStyle per child; a browser doesn't.
       Object.defineProperty(w.HTMLElement.prototype, "innerText", { get() { return this.textContent; } });
       const gcs = w.getComputedStyle.bind(w);
