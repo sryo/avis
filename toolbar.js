@@ -134,6 +134,8 @@
     return Array.isArray(ids) ? results : results[0];
   }
 
+  const markerFor = (id) => markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+
   // Inline marker update instead of render() - status changes run in tight loops; render() is O(N).
   function setStatus(ids, status) {
     const next = status || undefined;
@@ -147,7 +149,7 @@
     }, () => {
       persist();
       for (const a of changed) {
-        const m = markerLayer.querySelector(`.marker[data-annotation-id="${a.id}"]`);
+        const m = markerFor(a.id);
         if (m) {
           m.classList.toggle("working", a.status === "working");
           m.classList.toggle("acknowledged", a.status === "acknowledged");
@@ -217,7 +219,7 @@
         const absY = a.boundingBox.y + a.viewport.scrollY;
         window.scrollTo({ top: Math.max(0, absY - 100), behavior: "smooth" });
       }
-      const m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      const m = markerFor(id);
       if (m) {
         m.classList.add("revealing");
         setTimeout(() => m.classList.remove("revealing"), 800);
@@ -320,22 +322,16 @@
     return null;
   }
 
-  // React fiber tags we want to skip when collecting component names.
-  // HostComponent (5), HostText (6), HostHoistable (26), HostSingleton (27) = DOM nodes.
-  // Fragment/Mode/Profiler/Suspense/Context/etc = internal wrappers.
+  // Fiber tags that aren't user components: host nodes (5, 6, 26, 27) and internal wrappers.
   const SKIP_TAGS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 18, 19, 21, 22, 23, 24, 25, 26, 27]);
   const SKIP_NAMES = /^(Provider|Consumer|.+Boundary|.+Router|Outlet|Fragment|Suspense|Hot|Hot.*Reload|.*Overlay|.*Handler|Root|.*Wrapper|StrictMode|Profiler)$/;
 
   function isMinified(name) {
-    if (!name) return true;
-    if (name.length <= 2) return true;
-    if (name.length <= 3 && name === name.toLowerCase()) return true;
-    return false;
+    return !name || name.length <= 2 || (name.length <= 3 && name === name.toLowerCase());
   }
 
   function getReactInfo(el) {
-    // Walk up the DOM until we find a React fiber. SSR nodes (Next.js RSC,
-    // Astro islands, etc.) have no fiber - their nearest hydrated parent does.
+    // SSR nodes (RSC, Astro islands) have no fiber; their nearest hydrated ancestor does.
     let node = el;
     let key = getFiberKey(node);
     while (!key && node && node.parentElement) {
@@ -356,9 +352,8 @@
       }
       if (!SKIP_TAGS.has(fiber.tag)) {
         const t = fiber.type || fiber.elementType;
-        let name = null;
-        if (t) name = t.displayName || t.name || null;
-        if (name && !isMinified(name) && !SKIP_NAMES.test(name)) {
+        const name = t && (t.displayName || t.name);
+        if (!isMinified(name) && !SKIP_NAMES.test(name)) {
           if (components[components.length - 1] !== name) components.push(name);
         }
       }
@@ -373,12 +368,9 @@
     };
   }
 
-  // Chrome runs injected JS (perch's eval_js) in an isolated world: the page's console
-  // and React's __reactFiber$ expandos live in the main world, out of reach. A <script>
-  // element runs there and talks back over DOM events, which every world shares. Its
-  // source reuses the helpers above via toString, so they must stay self-contained.
-  // When strict CSP blocks inline scripts, avis patches its own world instead (the
-  // main world outside Chrome, so Safari and a <script>-loaded toolbar lose nothing).
+  // Runs in the main world via a <script> (see AGENTS.md, isolated world) and talks back
+  // over DOM events. Built from the helpers above via toString: keep them self-contained.
+  // Under strict CSP avis patches its own world instead.
   function mainWorldBridge() {
     if (window.__avisBridge) return;
     window.__avisBridge = true;
@@ -458,25 +450,13 @@
   function getSelector(el) {
     // Prefer stable test/aria/id attrs; each candidate must uniquely identify el.
     // JSON.stringify on attr values handles the `\` and `"` escapes correctly for [attr="..."].
-    const testid = el.getAttribute("data-testid");
-    if (testid) {
-      const sel = `[data-testid=${JSON.stringify(testid)}]`;
-      if (isUnique(sel, el)) return sel;
-    }
-    const test = el.getAttribute("data-test");
-    if (test) {
-      const sel = `[data-test=${JSON.stringify(test)}]`;
-      if (isUnique(sel, el)) return sel;
-    }
-    if (el.id && /^[a-z][\w-]*$/i.test(el.id)) {
-      const sel = "#" + el.id;
-      if (isUnique(sel, el)) return sel;
-    }
+    const attr = (a, pre = "", v = el.getAttribute(a)) => v && `${pre}[${a}=${JSON.stringify(v)}]`;
     const aria = el.getAttribute("aria-label");
-    if (aria && aria.length < 80) {
-      const sel = `${el.tagName.toLowerCase()}[aria-label=${JSON.stringify(aria)}]`;
-      if (isUnique(sel, el)) return sel;
-    }
+    for (const sel of [
+      attr("data-testid"), attr("data-test"),
+      /^[a-z][\w-]*$/i.test(el.id) && "#" + el.id,
+      aria && aria.length < 80 && attr("aria-label", el.tagName.toLowerCase()),
+    ]) if (sel && isUnique(sel, el)) return sel;
     // Path cascade - short-circuit at the first depth that's already unique.
     const parts = [];
     let cur = el;
@@ -509,27 +489,15 @@
   }
 
   function nearbyText(el) {
-    const own = visibleText(el, 200);
-    const parts = [];
-    const parent = el.parentElement;
-    if (parent) {
-      const pt = visibleText(parent, 200);
-      if (pt && pt !== own) parts.push(pt.slice(0, 80));
-    }
-    return parts.join(" | ");
+    const pt = el.parentElement ? visibleText(el.parentElement, 200) : "";
+    return pt && pt !== visibleText(el, 200) ? pt.slice(0, 80) : "";
   }
 
   function a11y(el) {
     const out = [];
-    const role = el.getAttribute("role");
-    const label = el.getAttribute("aria-label");
-    const name = el.getAttribute("name");
-    const placeholder = el.getAttribute("placeholder");
-    if (role) out.push(`role=${role}`);
-    if (label) out.push(`aria-label="${label}"`);
-    if (name) out.push(`name=${name}`);
-    if (placeholder) out.push(`placeholder="${placeholder}"`);
-    if (el.tagName === "INPUT" && el.getAttribute("type")) out.push(`type=${el.getAttribute("type")}`);
+    const add = (a, q = "") => { const v = el.getAttribute(a); if (v) out.push(`${a}=${q}${v}${q}`); };
+    add("role"); add("aria-label", '"'); add("name"); add("placeholder", '"');
+    if (el.tagName === "INPUT") add("type");
     return out.join(" ");
   }
 
@@ -677,7 +645,6 @@
       inset: 0;
       background: linear-gradient(180deg, #fde675 0%, #e8d05c 100%);
       transform: rotate(-7deg) translate(-3px, 2px);
-      transform-origin: center;
       box-shadow: 0 2px 5px rgba(0,0,0,.15);
       z-index: 0;
       transition: transform .12s ease;
@@ -698,7 +665,6 @@
       padding: 12px 14px;
       font-weight: 500;
       transform: rotate(-3deg);
-      transform-origin: center;
       box-shadow: 0 3px 7px rgba(0,0,0,.18);
       transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
     }
@@ -748,12 +714,9 @@
       display: inline-flex; align-items: center; gap: 6px;
       justify-self: center;
     }
-    .copy-stack > .copy-state.copied,
-    .copy-stack > .copy-state.failed { visibility: hidden; }
-    .btn.copied .copy-stack > .copy-state.normal { visibility: hidden; }
-    .btn.copied .copy-stack > .copy-state.copied { visibility: visible; }
-    .btn.copy-failed .copy-stack > .copy-state.normal { visibility: hidden; }
-    .btn.copy-failed .copy-stack > .copy-state.failed { visibility: visible; }
+    .copy-state.copied, .copy-state.failed,
+    .btn.copied .normal, .btn.copy-failed .normal { visibility: hidden; }
+    .btn.copied .copied, .btn.copy-failed .failed { visibility: visible; }
     .copy-count { font-variant-numeric: tabular-nums; opacity: .75; }
     .copy-count:empty { display: none; }
 
@@ -780,7 +743,6 @@
       color: #1a1a0e;
       border-radius: 0; padding: 14px; width: 260px;
       font-size: 13px; line-height: 1.4;
-      font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
       box-shadow: 0 6px 14px rgba(0,0,0,.18), 0 2px 4px rgba(0,0,0,.08);
       transform: rotate(-2deg); transform-origin: top left;
       z-index: 110; pointer-events: auto;
@@ -802,12 +764,9 @@
     .popup .label {
       font-size: 11px; opacity: .55; margin-bottom: 10px;
       word-break: break-all; font-family: ui-monospace, monospace;
-      color: #1a1a0e;
       cursor: grab; user-select: none;
     }
-    /* Reply: quote the agent's parent comment in a lavender block inside the
-       yellow user paper - gives the visual cue "this is replying to an agent
-       post-it" without restructuring the popup. */
+    /* Reply: the agent's parent comment quoted in lavender on the yellow paper. */
     .popup.reply .label {
       background: linear-gradient(180deg, #f0e7ff 0%, #e2d4ff 100%);
       color: #2a1f4d;
@@ -828,12 +787,11 @@
       caret-color: #1a1a0e;
       overflow-y: auto;
     }
-    .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; color: #1a1a0e; }
+    .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; }
     .popup .trail {
       font-size: 10px;
       opacity: .6;
       margin-bottom: 6px;
-      color: #1a1a0e;
       font-family: ui-monospace, monospace;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -893,9 +851,7 @@
       display: flex; align-items: center; gap: 6px; width: 100%;
     }
     .popup-tweaks-toggle:hover { opacity: 1; }
-    .popup-tweaks-toggle .popup-tweaks-leader { flex: 1; opacity: .35;
-      overflow: hidden; text-overflow: clip;
-    }
+    .popup-tweaks-toggle .popup-tweaks-leader { flex: 1; opacity: .35; overflow: hidden; }
     .popup-tweaks-toggle .popup-tweaks-chevron { font-size: 9px; }
     .popup-tweaks {
       margin-top: 8px;
@@ -911,12 +867,11 @@
     .popup-rule:first-child { border-top: 0; padding-top: 0; }
     .popup-rule-selector {
       font: 600 11px/1.2 ui-monospace, monospace;
-      color: #1a1a0e;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .popup-rule-source {
       font: italic 9px/1.2 -apple-system, system-ui, sans-serif;
-      color: #1a1a0e; opacity: .45;
+      opacity: .45;
       margin-bottom: 4px;
     }
     .popup-decl {
@@ -930,7 +885,7 @@
     }
     .popup-decl-label {
       font: 10px/1.2 ui-monospace, monospace;
-      color: #1a1a0e; opacity: .65;
+      opacity: .65;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       align-self: center;
     }
@@ -949,7 +904,6 @@
       border: 1px solid rgba(26,26,14,.22);
       border-radius: 2px;
       padding: 2px 4px;
-      box-sizing: border-box;
     }
     .popup-length-input:focus,
     .popup-edge-all:focus,
@@ -959,14 +913,14 @@
     .popup-edge-input { text-align: center; padding: 1px 2px; }
     .popup-length-unit {
       font: 10px/1 ui-monospace, monospace;
-      color: #1a1a0e; opacity: .45;
+      opacity: .45;
       text-align: left;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .popup-decl .popup-decl-readonly {
       grid-column: 2 / 4;
       font: 10px/1.2 ui-monospace, monospace;
-      color: #1a1a0e; opacity: .45;
+      opacity: .45;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .popup-decl.touched .popup-decl-label,
@@ -984,9 +938,9 @@
     .popup-edge-grid {
       display: grid;
       grid-template-areas:
-        ".  t  ."
-        "l box r"
-        ".  b  .";
+        ".    top    ."
+        "left box right"
+        ".   bottom  .";
       grid-template-columns: 1fr 1fr 1fr;
       gap: 2px;
       align-items: center;
@@ -998,14 +952,6 @@
         " . box  ."
         "bl  .  br";
     }
-    .popup-edge-input[data-side="top"]    { grid-area: t; }
-    .popup-edge-input[data-side="right"]  { grid-area: r; }
-    .popup-edge-input[data-side="bottom"] { grid-area: b; }
-    .popup-edge-input[data-side="left"]   { grid-area: l; }
-    .popup-edge-input[data-corner="tl"]   { grid-area: tl; }
-    .popup-edge-input[data-corner="tr"]   { grid-area: tr; }
-    .popup-edge-input[data-corner="bl"]   { grid-area: bl; }
-    .popup-edge-input[data-corner="br"]   { grid-area: br; }
     .popup-edge-diagram {
       grid-area: box;
       position: relative;
@@ -1017,38 +963,29 @@
     .popup-edge-diagram .d-inner {
       position: absolute; inset: 0;
       border: 1px solid rgba(26,26,14,.22);
-      box-sizing: border-box;
     }
     .popup-edge-diagram .d-ring  { inset: 3px; background: rgba(26,26,14,.04); }
     .popup-edge-diagram .d-inner { inset: 6px; background: rgba(26,26,14,.10); border: 0; border-radius: 1px; }
-    /* Edge highlights — which layer the highlight lives on depends on the property. */
-    .popup-edge-grid[data-prop="margin"][data-active="top"]         .d-outer { border-top-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="margin"][data-active="right"]       .d-outer { border-right-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="margin"][data-active="bottom"]      .d-outer { border-bottom-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="margin"][data-active="left"]        .d-outer { border-left-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="inset"][data-active="top"]          .d-outer { border-top-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="inset"][data-active="right"]        .d-outer { border-right-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="inset"][data-active="bottom"]       .d-outer { border-bottom-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="inset"][data-active="left"]         .d-outer { border-left-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="border-width"][data-active="top"]    .d-ring  { border-top-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="border-width"][data-active="right"]  .d-ring  { border-right-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="border-width"][data-active="bottom"] .d-ring  { border-bottom-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="border-width"][data-active="left"]   .d-ring  { border-left-color: #7a6a2e; }
-    .popup-edge-grid[data-prop="padding"][data-active="top"]    .d-inner { box-shadow: inset 0  1px 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="padding"][data-active="right"]  .d-inner { box-shadow: inset -1px 0 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="padding"][data-active="bottom"] .d-inner { box-shadow: inset 0 -1px 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="padding"][data-active="left"]   .d-inner { box-shadow: inset  1px 0 0 0 #7a6a2e; }
-    /* border-radius: each input rounds its own corner of the inner rect, with live value. */
-    .popup-edge-grid[data-prop="border-radius"] .d-inner {
-      border-top-left-radius:     var(--r-tl, 1px);
-      border-top-right-radius:    var(--r-tr, 1px);
-      border-bottom-right-radius: var(--r-br, 1px);
-      border-bottom-left-radius:  var(--r-bl, 1px);
+    /* The focused input highlights its edge: a border side on the outer box (margin,
+       inset) or ring (border-width), an inset shadow on the inner box otherwise.
+       Unset --s makes box-shadow invalid at computed time, i.e. none. */
+    .popup-edge-grid[data-active=top] { --t: #7a6a2e; --s: 0 1px; }
+    .popup-edge-grid[data-active=right] { --r: #7a6a2e; --s: -1px 0; }
+    .popup-edge-grid[data-active=bottom] { --b: #7a6a2e; --s: 0 -1px; }
+    .popup-edge-grid[data-active=left] { --l: #7a6a2e; --s: 1px 0; }
+    .popup-edge-grid[data-active=tl] { --s: 1px 1px; }
+    .popup-edge-grid[data-active=tr] { --s: -1px 1px; }
+    .popup-edge-grid[data-active=bl] { --s: 1px -1px; }
+    .popup-edge-grid[data-active=br] { --s: -1px -1px; }
+    .popup-edge-grid:is([data-prop=margin], [data-prop=inset]) .d-outer,
+    .popup-edge-grid[data-prop=border-width] .d-ring {
+      border-color: var(--t, rgba(26,26,14,.22)) var(--r, rgba(26,26,14,.22)) var(--b, rgba(26,26,14,.22)) var(--l, rgba(26,26,14,.22));
     }
-    .popup-edge-grid[data-prop="border-radius"][data-active="tl"] .d-inner { box-shadow: inset  1px  1px 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="border-radius"][data-active="tr"] .d-inner { box-shadow: inset -1px  1px 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="border-radius"][data-active="bl"] .d-inner { box-shadow: inset  1px -1px 0 0 #7a6a2e; }
-    .popup-edge-grid[data-prop="border-radius"][data-active="br"] .d-inner { box-shadow: inset -1px -1px 0 0 #7a6a2e; }
+    .popup-edge-grid:is([data-prop=padding], [data-prop=border-radius]) .d-inner { box-shadow: inset var(--s) 0 0 #7a6a2e; }
+    /* Each corner input rounds its own corner of the inner rect, live. */
+    .popup-edge-grid[data-prop=border-radius] .d-inner {
+      border-radius: var(--r-tl, 1px) var(--r-tr, 1px) var(--r-br, 1px) var(--r-bl, 1px);
+    }
     .popup-rule-undo {
       background: transparent; border: 0; padding: 2px 0;
       font: 10px/1 ui-monospace, monospace;
@@ -1058,7 +995,7 @@
     .popup-rule-undo:hover { opacity: 1; text-decoration: underline; }
     .popup-tweaks-unreadable {
       font: 9px/1.2 ui-monospace, monospace;
-      color: #1a1a0e; opacity: .4;
+      opacity: .4;
       margin-top: 6px;
     }
   `;
@@ -1176,8 +1113,7 @@
     overlay = h("div", "overlay");
     outline = h("div", "outline");
     outline.style.display = "none";
-    shadow.appendChild(overlay);
-    shadow.appendChild(outline);
+    shadow.append(overlay, outline);
     overlay.addEventListener("mousemove", onHover);
     overlay.addEventListener("click", onPick);
     overlay.addEventListener("contextmenu", (e) => { e.preventDefault(); exitPointMode(); });
@@ -1283,9 +1219,8 @@
     }
     render();
 
-    // Tweak-rules UI: skipped for replies. Resolves the target from the saved selector
-    // when this is an edit (marker click hands `el = null`). When discovery finds nothing
-    // applicable, the toggle never mounts and the post-it stays comment-only.
+    // Tweak rules, not for replies. An edit (el = null) resolves the saved selector;
+    // with no matching rules the toggle never mounts.
     let previewSheet = null;
     const ruleBlocks = [];
     // "block|property" → styleTweak; newest per property wins. Unplaceable saved tweaks stay as-is.
@@ -1497,8 +1432,8 @@
     return "(stylesheet)";
   }
 
-  // CSSOM enumerates `padding: 8px 16px` as its four longhands; these fold back so the
-  // edges editor can drive them. Longhand order matches the shorthand's value order.
+  // CSSOM lists `padding: 8px 16px` as four longhands; these fold back into one edges
+  // control. Longhand order matches the shorthand's value order.
   const LONGHAND_GROUPS = [
     ["padding", ["padding-top", "padding-right", "padding-bottom", "padding-left"]],
     ["margin", ["margin-top", "margin-right", "margin-bottom", "margin-left"]],
@@ -1546,15 +1481,11 @@
     return out;
   }
 
-  const FOUR_SIDE_SHORTHANDS = new Set(["padding", "margin", "inset", "border-width"]);
-  const FOUR_CORNER_SHORTHANDS = new Set(["border-radius"]);
-
   // "8" → {n:8,unit:fallback}; "8px" → {n:8,unit:"px"}; "auto" → {raw:"auto"}.
   function parseDimension(text, fallbackUnit = "px") {
-    if (text == null) return null;
-    const s = String(text).trim();
-    if (s === "") return null;
-    if (s === "auto" || s === "inherit" || s === "initial" || s === "unset") return { raw: s };
+    const s = String(text ?? "").trim();
+    if (!s) return null;
+    if (/^(auto|inherit|initial|unset)$/.test(s)) return { raw: s };
     const m = s.match(/^(-?\d*\.?\d+)\s*(px|rem|em|%|vw|vh|fr|ch|ex)?$/i);
     if (!m) return null;
     return { n: parseFloat(m[1]), unit: (m[2] || fallbackUnit || "px").toLowerCase() };
@@ -1569,23 +1500,16 @@
     const units = new Set(parsed.filter((p) => p.n).map((p) => p.unit));
     if (units.size > 1) return null;
     const unit = [...units][0] || parsed[0].unit;
-    const nums = parsed.map((p) => p.n);
-    let t, r, b, l;
-    if (nums.length === 1) [t, r, b, l] = [nums[0], nums[0], nums[0], nums[0]];
-    else if (nums.length === 2) [t, r, b, l] = [nums[0], nums[1], nums[0], nums[1]];
-    else if (nums.length === 3) [t, r, b, l] = [nums[0], nums[1], nums[2], nums[1]];
-    else [t, r, b, l] = nums;
+    const [t, r = t, b = t, l = r] = parsed.map((p) => p.n);
     return { values: [t, r, b, l], unit };
   }
 
+  const round3 = (n) => Math.round(n * 1000) / 1000;
   // [t,r,b,l] → shortest CSS form: "8px", "8px 16px", "8px 16px 12px", "8px 16px 12px 4px".
   function formatShorthand4(values, unit) {
     const [t, r, b, l] = values;
-    const fmt = (n) => (Math.round(n * 1000) / 1000) + unit;
-    if (t === r && r === b && b === l) return fmt(t);
-    if (t === b && l === r) return `${fmt(t)} ${fmt(r)}`;
-    if (l === r) return `${fmt(t)} ${fmt(r)} ${fmt(b)}`;
-    return `${fmt(t)} ${fmt(r)} ${fmt(b)} ${fmt(l)}`;
+    const n = l !== r ? 4 : b !== t ? 3 : r !== t ? 2 : 1;
+    return values.slice(0, n).map((v) => round3(v) + unit).join(" ");
   }
 
   const unitStep = (unit) => /^(r?em|ch|ex)$/.test(unit) ? 0.05 : 1;
@@ -1593,20 +1517,10 @@
   // → {kind, ...range/unit info}
   function inferControl(value, property) {
     const v = value.trim();
-    if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return { kind: "color" };
-    if (/^rgba?\(/i.test(v) || /^hsla?\(/i.test(v)) return { kind: "color" };
-    if (/color|fill|stroke/.test(property) && /^[a-z]+$/i.test(v) && namedHex(v)) return { kind: "color" };
-    if (property && (FOUR_SIDE_SHORTHANDS.has(property) || FOUR_CORNER_SHORTHANDS.has(property))) {
-      const parsed = parseShorthand4(v);
-      if (parsed) {
-        return {
-          kind: "edges",
-          shape: FOUR_CORNER_SHORTHANDS.has(property) ? "corners" : "sides",
-          values: parsed.values,
-          unit: parsed.unit,
-        };
-      }
-    }
+    if (/^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$|(rgb|hsl)a?\()/i.test(v) ||
+        (/color|fill|stroke/.test(property) && /^[a-z]+$/i.test(v) && namedHex(v))) return { kind: "color" };
+    const parsed = LONGHAND_GROUPS.some((g) => g[0] === property) && parseShorthand4(v);
+    if (parsed) return { kind: "edges", shape: property === "border-radius" ? "corners" : "sides", ...parsed };
     const lenMatch = v.match(/^(-?\d+(?:\.\d+)?)(px|rem|em|%|vw|vh|fr|ch|ex)$/i);
     if (lenMatch) {
       const unit = lenMatch[2].toLowerCase();
@@ -1626,249 +1540,142 @@
   function createPreviewSheet() {
     const tweaks = new Map(); // property → formatted value
     let selector = null;
-    let constructable = null;
-    let fallback = null;
-    function attach() {
-      if (constructable || fallback) return;
-      try {
-        constructable = new CSSStyleSheet();
-        document.adoptedStyleSheets = [...document.adoptedStyleSheets, constructable];
-        ownSheets.add(constructable);
-      } catch {
-        ownSheets.add(fallback = document.createElement("style"));
-        document.head.appendChild(fallback);
-      }
-    }
+    let sheet = null; // CSSStyleSheet, or the <style> fallback
     function flush() {
-      if (!selector || (!constructable && !fallback)) return;
-      const body = Array.from(tweaks.entries())
-        .map(([p, v]) => `${p}: ${v} !important;`)
-        .join(" ");
+      if (!selector || !sheet) return;
+      const body = [...tweaks].map(([p, v]) => `${p}: ${v} !important;`).join(" ");
       const css = body ? `${selector} { ${body} }` : "";
-      if (constructable) constructable.replaceSync(css);
-      else fallback.textContent = css;
+      if (sheet.replaceSync) sheet.replaceSync(css);
+      else sheet.textContent = css;
     }
     return {
-      attach(sel) { selector = sel; attach(); flush(); },
+      attach(sel) {
+        selector = sel;
+        if (!sheet) {
+          try {
+            sheet = new CSSStyleSheet();
+            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+          } catch {
+            document.head.appendChild(sheet = document.createElement("style"));
+          }
+          ownSheets.add(sheet);
+        }
+        flush();
+      },
       set(prop, formatted) { tweaks.set(prop, formatted); flush(); },
       clear(prop) { tweaks.delete(prop); flush(); },
       detach() {
-        if (constructable) {
-          document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== constructable);
-          constructable = null;
-        }
-        if (fallback) { fallback.remove(); fallback = null; }
+        if (sheet && sheet.remove) sheet.remove();
+        else if (sheet) document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+        sheet = selector = null;
         tweaks.clear();
-        selector = null;
       },
     };
   }
 
-  // ArrowUp/Down step by decl.step; Shift = 10x.
-  function buildLengthInput(decl, onChange) {
-    const row = h("div", "popup-decl");
+  const textInput = (cls, attrs) => h("input", cls, { type: "text", spellcheck: "false", ...attrs });
 
-    const label = h("span", "popup-decl-label", 0, decl.property);
-    row.appendChild(label);
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "popup-length-input";
-    input.inputMode = "decimal";
-    input.spellcheck = false;
-    input.value = decl.value;
-    row.appendChild(input);
-
-    const suffix = h("span", "popup-length-unit", 0, decl.kind === "length" ? decl.unit : "");
-    row.appendChild(suffix);
-
-    function emit() {
-      const parsed = parseDimension(input.value, decl.kind === "length" ? decl.unit : "");
-      if (!parsed) return;
-      if (parsed.raw) { onChange(parsed.raw); return; }
-      const out = decl.kind === "length" ? (Math.round(parsed.n * 1000) / 1000) + parsed.unit : String(Math.round(parsed.n * 1000) / 1000);
-      input.value = out;
-      onChange(out);
-    }
-
-    input.addEventListener("change", emit);
+  // Enter commits. With `read`, ArrowUp/Down hand read() ± step() (Shift = 10x) to write().
+  function stepKeys(input, step, read, write) {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); input.blur(); return; }
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      const parsed = parseDimension(input.value, decl.kind === "length" ? decl.unit : "");
-      if (!parsed || parsed.n == null) return;
+      const dir = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
+      if (!dir || !read) return;
+      const cur = read();
+      if (Number.isNaN(cur)) return;
       e.preventDefault();
-      const step = (decl.step || 1) * (e.shiftKey ? 10 : 1);
-      const next = Math.round((parsed.n + (e.key === "ArrowUp" ? step : -step)) * 1000) / 1000;
-      input.value = decl.kind === "length" ? next + parsed.unit : String(next);
-      emit();
+      write(round3(cur + dir * step() * (e.shiftKey ? 10 : 1)));
     });
+  }
 
-    return {
-      row,
-      setValue(v) { input.value = v; },
-    };
+  // Each control fills `row` after its label and returns setValue.
+  function lengthControl(row, decl, onChange) {
+    const unit = decl.kind === "length" ? decl.unit : "";
+    const input = textInput("popup-length-input", { inputmode: "decimal" });
+    input.value = decl.value;
+    row.append(input, h("span", "popup-length-unit", 0, unit));
+    function emit() {
+      const p = parseDimension(input.value, unit);
+      if (!p) return;
+      if (p.raw) return onChange(p.raw);
+      onChange(input.value = unit ? round3(p.n) + p.unit : String(round3(p.n)));
+    }
+    let p;
+    input.addEventListener("change", emit);
+    stepKeys(input, () => decl.step || 1, () => (p = parseDimension(input.value, unit)) ? +p.n : NaN,
+      (n) => { input.value = unit ? n + p.unit : String(n); emit(); });
+    return (v) => { input.value = v; };
   }
 
   // Four sides or corners, linked or separate; emits one shorthand string.
-  function buildEdgeField(decl, onChange) {
-    const row = h("div", "popup-decl popup-decl-edges");
-
-    const sideKeys = decl.shape === "corners"
-      ? ["tl", "tr", "br", "bl"]
-      : ["top", "right", "bottom", "left"];
-    let values = decl.values.slice();
-    let unit = decl.unit;
-
-    const label = h("span", "popup-decl-label", 0, decl.property);
-
-    const allInput = document.createElement("input");
-    allInput.type = "text";
-    allInput.className = "popup-edge-all";
-    allInput.spellcheck = false;
-
-    const grid = h("div", "popup-edge-grid");
-    grid.dataset.shape = decl.shape;
-    grid.dataset.prop = decl.property;
-    grid.dataset.active = "";
-
-    const inputs = sideKeys.map((key, i) => {
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.className = "popup-edge-input";
-      inp.inputMode = "decimal";
-      inp.spellcheck = false;
-      if (decl.shape === "corners") inp.dataset.corner = key;
-      else inp.dataset.side = key;
-      inp.value = String(values[i]);
-      grid.appendChild(inp);
+  function edgeControl(row, decl, onChange) {
+    const corners = decl.shape === "corners";
+    const keys = corners ? ["tl", "tr", "br", "bl"] : ["top", "right", "bottom", "left"];
+    let values = decl.values.slice(), unit = decl.unit;
+    const allInput = textInput("popup-edge-all");
+    const grid = h("div", "popup-edge-grid", { "data-shape": decl.shape, "data-prop": decl.property, "data-active": "" });
+    const inputs = keys.map((key, i) => {
+      const inp = textInput("popup-edge-input", { inputmode: "decimal", [corners ? "data-corner" : "data-side"]: key });
+      inp.style.gridArea = key;
+      // Focus drives the diagram highlight; change parses one cell.
+      inp.addEventListener("focus", () => { grid.dataset.active = key; });
+      inp.addEventListener("blur", () => { grid.dataset.active = ""; });
+      inp.addEventListener("change", () => {
+        const p = parseDimension(inp.value, unit);
+        // Sides share one unit: another unit only while the other sides are 0.
+        const ok = p && p.n != null && !(p.n && p.unit !== unit && values.some((v, j) => v && j !== i));
+        if (ok) { values[i] = p.n; if (p.n) unit = p.unit; }
+        inp.value = String(values[i]);
+        if (ok) emit();
+      });
+      stepKeys(inp, () => unitStep(unit), () => parseFloat(inp.value), (n) => { values[i] = n; inp.value = String(n); emit(); });
       return inp;
     });
+    grid.append(...inputs, h("div", "popup-edge-diagram", 0, h("div", "d-outer", 0, h("div", "d-ring", 0, h("div", "d-inner")))));
+    const link = h("button", "popup-edge-link", { type: "button", title: "link / unlink sides" }, "⛓");
+    row.append(link); // setMode puts allInput or grid before it
 
-    grid.appendChild(h("div", "popup-edge-diagram", 0, h("div", "d-outer", 0, h("div", "d-ring", 0, h("div", "d-inner")))));
-
-    const link = document.createElement("button");
-    link.type = "button";
-    link.className = "popup-edge-link";
-    link.title = "link / unlink sides";
-    link.textContent = "⛓";
-
-    row.appendChild(label);
-    row.appendChild(link); // middle slot is inserted before link by setMode
-
-    function syncRadiusVars() {
-      if (decl.shape !== "corners") return;
-      const cap = (n) => Math.min(Math.max(n / 4, 0), 6) + "px";
-      grid.style.setProperty("--r-tl", cap(values[0]));
-      grid.style.setProperty("--r-tr", cap(values[1]));
-      grid.style.setProperty("--r-br", cap(values[2]));
-      grid.style.setProperty("--r-bl", cap(values[3]));
+    function syncRadius() {
+      if (corners) keys.forEach((k, i) => grid.style.setProperty("--r-" + k, Math.min(Math.max(values[i] / 4, 0), 6) + "px"));
     }
-
     function emit() {
-      const formatted = formatShorthand4(values, unit);
-      onChange(formatted);
-      syncRadiusVars();
+      onChange(formatShorthand4(values, unit));
+      syncRadius();
     }
-
-    function setMode(mode) {
-      row.dataset.mode = mode;
-      const show = mode === "linked" ? allInput : grid;
-      const hide = mode === "linked" ? grid : allInput;
-      if (hide.parentNode === row) row.removeChild(hide);
+    function setMode(linked) {
+      const show = linked ? allInput : grid;
+      row.dataset.mode = linked ? "linked" : "separate";
+      (linked ? grid : allInput).remove();
       if (show.parentNode !== row) row.insertBefore(show, link);
-      if (mode === "linked") {
-        allInput.value = formatShorthand4(values, unit);
-        link.setAttribute("aria-pressed", "true");
-      } else {
-        for (let i = 0; i < 4; i++) inputs[i].value = String(values[i]);
-        link.setAttribute("aria-pressed", "false");
-      }
+      if (linked) allInput.value = formatShorthand4(values, unit);
+      else inputs.forEach((inp, i) => { inp.value = String(values[i]); });
+      link.setAttribute("aria-pressed", linked);
     }
-
+    function autoMode() {
+      setMode(values.every((v) => v === values[0]));
+      syncRadius();
+    }
     function take(v) {
-      const parsed = parseShorthand4(v);
-      if (parsed) ({ values, unit } = parsed);
-      return parsed;
+      const p = parseShorthand4(v);
+      if (p) ({ values, unit } = p);
+      return p;
     }
     allInput.addEventListener("change", () => {
       const ok = take(allInput.value);
       allInput.value = formatShorthand4(values, unit);
       if (ok) emit();
     });
-    allInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); allInput.blur(); }
-    });
-
-    // Side inputs: focus drives the diagram highlight; change parses one cell.
-    inputs.forEach((inp, i) => {
-      inp.addEventListener("focus", () => {
-        grid.dataset.active = inp.dataset.side || inp.dataset.corner || "";
-      });
-      inp.addEventListener("blur", () => { grid.dataset.active = ""; });
-      inp.addEventListener("change", () => {
-        const parsed = parseDimension(inp.value, unit);
-        // Sides share one unit: another unit only while the other sides are 0.
-        if (!parsed || parsed.n == null || (parsed.n && parsed.unit !== unit && values.some((v, j) => v && j !== i))) {
-          inp.value = String(values[i]);
-          return;
-        }
-        values[i] = parsed.n;
-        if (parsed.n) unit = parsed.unit;
-        inp.value = String(parsed.n);
-        emit();
-      });
-      inp.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); inp.blur(); return; }
-        if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-        const cur = parseFloat(inp.value);
-        if (Number.isNaN(cur)) return;
-        e.preventDefault();
-        const step = unitStep(unit) * (e.shiftKey ? 10 : 1);
-        const next = Math.round((cur + (e.key === "ArrowUp" ? step : -step)) * 1000) / 1000;
-        values[i] = next;
-        inp.value = String(next);
-        emit();
-      });
-    });
-
-    link.addEventListener("click", () => {
-      setMode(row.dataset.mode === "linked" ? "separate" : "linked");
-    });
-
-    setMode(values.every((v) => v === values[0]) ? "linked" : "separate");
-    syncRadiusVars();
-
-    return {
-      row,
-      setValue(v) {
-        take(v);
-        setMode(values.every((x) => x === values[0]) ? "linked" : "separate");
-        syncRadiusVars();
-      },
-    };
+    stepKeys(allInput);
+    link.addEventListener("click", () => setMode(row.dataset.mode !== "linked"));
+    autoMode();
+    return (v) => { take(v); autoMode(); };
   }
 
-  function buildDeclarationRow(decl, onChange) {
-    if (decl.kind === "edges") return buildEdgeField(decl, onChange);
-    if (decl.kind === "length" || decl.kind === "number") return buildLengthInput(decl, onChange);
-
-    const row = h("div", "popup-decl");
-
-    const label = h("span", "popup-decl-label", 0, decl.property);
-    row.appendChild(label);
-
-    if (decl.kind === "readonly") {
-      const ro = h("span", "popup-decl-readonly", 0, decl.value);
-      ro.title = decl.value;
-      row.appendChild(ro);
-      return { row, setValue: () => {} };
-    }
-
-    const input = document.createElement("input");
-    input.type = "color";
-    input.value = rgbToHex(decl.value);
-    const badge = h("span", "popup-length-unit", 0, input.value);
+  function colorControl(row, decl, onChange) {
+    const input = h("input", 0, { type: "color" });
+    const badge = h("span", "popup-length-unit");
+    const setValue = (v) => { input.value = rgbToHex(v); badge.textContent = input.value; };
+    setValue(decl.value);
     // The picker has no alpha; keep the original's.
     const alpha = decl.value.match(/(?:(?:[^,]*,){3}|\/)\s*([\d.]+)(%?)\s*\)$/);
     const a = alpha ? alpha[1] / (alpha[2] ? 100 : 1) : 1;
@@ -1877,48 +1684,40 @@
       badge.textContent = v;
       onChange(a < 1 ? `rgba(${[1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16)).join(", ")}, ${a})` : v);
     });
-    row.appendChild(input);
-    row.appendChild(badge);
+    row.append(input, badge);
+    return setValue;
+  }
 
-    return {
-      row,
-      setValue(v) {
-        const hex = rgbToHex(v);
-        input.value = hex;
-        badge.textContent = hex;
-      },
-    };
+  function buildDeclarationRow(decl, onChange) {
+    const { kind, value } = decl;
+    const row = h("div", kind === "edges" ? "popup-decl popup-decl-edges" : "popup-decl", 0,
+      h("span", "popup-decl-label", 0, decl.property));
+    if (kind === "readonly") {
+      row.append(h("span", "popup-decl-readonly", { title: value }, value));
+      return { row, setValue() {} };
+    }
+    const control = kind === "edges" ? edgeControl : kind === "color" ? colorControl : lengthControl;
+    return { row, setValue: control(row, decl, onChange) };
   }
 
   function buildRuleBlock(entry, source, onTweak, onClear) {
-    const block = h("div", "popup-rule");
-
-    const sel = h("div", "popup-rule-selector", 0, entry.selectorText);
-    sel.title = entry.selectorText;
-    block.appendChild(sel);
-
-    const src = h("div", "popup-rule-source", 0, source);
-    block.appendChild(src);
-
-    const decls = readDeclarations(entry);
-    const rowsByProp = new Map();
-    for (const decl of decls) {
-      const built = buildDeclarationRow(decl, (formatted) => {
-        built.row.classList.add("touched");
-        onTweak(decl, formatted);
-        undoBtn.hidden = false;
-      });
-      rowsByProp.set(decl.property, { decl, ...built });
-      block.appendChild(built.row);
+    const block = h("div", "popup-rule", 0,
+      h("div", "popup-rule-selector", { title: entry.selectorText }, entry.selectorText),
+      h("div", "popup-rule-source", 0, source));
+    const undoBtn = h("button", "popup-rule-undo", { type: "button", hidden: "" }, "↩ undo tweaks");
+    const touch = (info, v) => {
+      info.row.classList.add("touched");
+      undoBtn.hidden = false;
+      onTweak(info.decl, v);
+    };
+    const rows = new Map();
+    for (const decl of readDeclarations(entry)) {
+      const info = { decl, ...buildDeclarationRow(decl, (v) => touch(info, v)) };
+      rows.set(decl.property, info);
+      block.append(info.row);
     }
-
-    const undoBtn = document.createElement("button");
-    undoBtn.type = "button";
-    undoBtn.className = "popup-rule-undo";
-    undoBtn.textContent = "↩ undo tweaks";
-    undoBtn.hidden = true;
     undoBtn.addEventListener("click", () => {
-      for (const [prop, info] of rowsByProp) {
+      for (const [prop, info] of rows) {
         if (info.row.classList.contains("touched")) {
           info.row.classList.remove("touched");
           info.setValue(info.decl.value);
@@ -1927,17 +1726,15 @@
       }
       undoBtn.hidden = true;
     });
-    block.appendChild(undoBtn);
+    block.append(undoBtn);
 
     return {
       block,
-      hydrateTweak(property, afterValue) {
-        const info = rowsByProp.get(property);
+      hydrateTweak(property, after) {
+        const info = rows.get(property);
         if (!info || info.decl.kind === "readonly") return false;
-        info.setValue(afterValue);
-        info.row.classList.add("touched");
-        undoBtn.hidden = false;
-        onTweak(info.decl, afterValue);
+        info.setValue(after);
+        touch(info, after);
         return true;
       },
     };
@@ -1952,7 +1749,7 @@
     // Commit an open popup first, then rebind to the re-rendered marker.
     if (popup && popup._commit) {
       popup._commit();
-      m = markerLayer.querySelector(`.marker[data-annotation-id="${id}"]`);
+      m = markerFor(id);
       if (!m) return;
     }
     e.preventDefault();
@@ -1994,10 +1791,9 @@
     if (!dragState.moved && Math.hypot(dx, dy) > 5) {
       dragState.moved = true;
       dragState.marker.classList.add("dragging");
-      dragState.dropOutline = document.createElement("div");
-      dragState.dropOutline.className = "outline drop";
+      shadow.appendChild(dragState.dropOutline = h("div", "outline drop"));
       dragState.dropOutline.style.display = "none";
-      shadow.appendChild(dragState.dropOutline);
+
     }
     if (!dragState.moved) return;
     dragState.marker.style.left = (e.clientX - 11) + "px";
@@ -2065,8 +1861,7 @@
     setTimeout(() => copyBtn.classList.remove(ok ? "copied" : "copy-failed"), 1400);
   });
 
-  // Capture-phase: scroll events don't bubble, but capture catches them from
-  // any scrolling element (window, sidebar, inner overflow container, etc.).
+  // Scroll doesn't bubble; capture catches it from any scrolling element.
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
 
@@ -2090,9 +1885,9 @@
     navPending = true;
     requestAnimationFrame(() => { navPending = false; render(); });
   }
-  // Polls location instead of patching history: injected into an isolated world (perch
-  // eval_js on Chrome), a history patch never sees the page's own pushState calls.
-  // Late-mounting orphan targets (async routes) re-render too.
+  // Polls location: from an isolated world a history patch never sees the page's
+  // pushState. Late-mounting orphan targets (async routes) re-render too.
+
   let lastHref = location.href;
   function checkNav() {
     if (location.href === lastHref && ![...markerLayer.children].some((m) => !m._targetEl && resolveTarget(m._elementPath))) return;
