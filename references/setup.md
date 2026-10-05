@@ -28,6 +28,7 @@ perch reads `script_path` server-side and runs it, then `script`, in a single fu
 - **Already mounted**: `toolbar.js` returns early when `window.__avis` exists, so re-running the call is safe and just reports `info()`.
 - **`mountedElsewhere: true`**: the page loaded `toolbar.js` itself (a plain `<script>`, like the avis site), so the toolbar lives in the page's JS world, not perch's. `__avis` here is a stub with only `info()` and `VERSION`; read annotations from the page's own `window.__avis` instead, or review a page that doesn't embed avis.
 - **`persistOK: false`**: `localStorage` writes are failing (quota, private mode). Annotations live until the page reloads.
+- **Several tabs on one origin** share one annotation list: each tab's writes merge with the others', and an open tab picks up another tab's changes.
 
 ## Installing perch
 

@@ -10,6 +10,7 @@
     return;
   }
   const STORAGE_KEY = "avis:annotations";
+  const REV_KEY = "avis:rev";
   const CONSOLE_BUFFER_MAX = 200;
   const CONSOLE_WINDOW_MS = 60_000;
   const CONSOLE_LOG_PER_ANNOTATION = 20;
@@ -110,8 +111,12 @@
     consoleBuffer.push({ level, ts: Date.now(), msg });
     if (consoleBuffer.length > CONSOLE_BUFFER_MAX) consoleBuffer.shift();
   }
+  // The store as this tab last read or wrote it, and the token every write puts under
+  // REV_KEY: persist() re-reads the store only when another tab changed the token.
+  let storedRaw = null, rev = null;
+  try { storedRaw = localStorage.getItem(STORAGE_KEY); rev = localStorage.getItem(REV_KEY); } catch {}
   const state = {
-    annotations: load(),
+    annotations: load(storedRaw),
     pointing: false,
   };
 
@@ -197,7 +202,7 @@
         onPage: currentPageAnnotations().length,
         pending: count("pending"),
         working: count("working"),
-        persistOK: !persistBroken,
+        persistOK: persistOK(),
       };
     },
     reveal(id) {
@@ -242,7 +247,7 @@
       persist();
       render();
     },
-    persistOK() { return !persistBroken; },
+    persistOK,
   };
 
   function isCurrentPage(a) {
@@ -255,19 +260,56 @@
     return state.annotations.filter(isCurrentPage);
   }
 
-  function load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
-    catch { return []; }
+  function load(raw) {
+    try {
+      const v = JSON.parse(raw || "[]");
+      return Array.isArray(v) ? v.filter((a) => a && a.id) : [];
+    } catch { return []; }
   }
-  let persistBroken = false;
+  // Another tab wrote since storedRaw: keep ids it added, drop ids either side removed,
+  // and keep our copy of ids both still have.
+  function merge(raw) {
+    const ids = (list) => new Set(list.map((a) => a.id));
+    const theirs = load(raw), base = ids(load(storedRaw)), ours = ids(state.annotations), kept = ids(theirs);
+    state.annotations = state.annotations.filter((a) => kept.has(a.id) || !base.has(a.id))
+      .concat(theirs.filter((a) => !base.has(a.id) && !ours.has(a.id)));
+  }
+  let persistBroken = null; // unknown until the first write or persistOK()'s probe
   function persist() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.annotations)); }
-    catch (e) {
-      if (!persistBroken) avisWarn("[avis] persist failed - annotations won't survive a reload.", e);
-      persistBroken = true;
-      shadow.querySelector(".toolbar").classList.add("persist-broken");
+    const was = persistBroken;
+    persistBroken = true;
+    try {
+      if (localStorage.getItem(REV_KEY) !== rev) {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw !== storedRaw) { merge(raw); scheduleRender(); }
+      }
+      const next = JSON.stringify(state.annotations);
+      localStorage.setItem(STORAGE_KEY, next);
+      localStorage.setItem(REV_KEY, rev = "" + Math.random());
+      storedRaw = next;
+      persistBroken = false;
+    } catch (e) {
+      if (!was) avisWarn("[avis] persist failed - annotations won't survive a reload.", e);
     }
+    const tb = shadow.querySelector(".toolbar");
+    if (tb) tb.classList.toggle("persist-broken", persistBroken);
   }
+  // Probes with a scratch key so asking never rewrites the store or wakes other tabs' reloads.
+  function persistOK() {
+    if (persistBroken == null) {
+      try { localStorage.setItem("avis:probe", "1"); localStorage.removeItem("avis:probe"); persistBroken = false; }
+      catch { persistBroken = true; }
+      shadow.querySelector(".toolbar").classList.toggle("persist-broken", persistBroken);
+    }
+    return !persistBroken;
+  }
+  // Chrome spends a few ms registering a storage listener, so it waits out the inject.
+  setTimeout(() => addEventListener("storage", () => {
+    // A tab that can't write keeps what it has rather than trading it for the other tab's copy.
+    if (persistBroken) return;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw !== storedRaw) { state.annotations = load(storedRaw = raw); render(); }
+  }));
 
   function getFiberKey(el) {
     for (const k in el) {
@@ -1368,6 +1410,7 @@
       // Detach the preview sheet before capture() reads computedStyles so the snapshot
       // reflects the baseline page, not the in-progress overrides.
       if (previewSheet) previewSheet.detach();
+      let changed = true;
       if (isEdit) {
         const i = findAnnotationIndex(existing.id);
         if (i !== -1) {
@@ -1388,8 +1431,8 @@
           : { id: newId(), comment: text, source: "user", replyTo: existing.id, element, elementPath, x, y, boundingBox, viewport, url: location.href, timestamp: Date.now() };
         if (hasTweaks) ann.styleTweaks = tweaks;
         state.annotations.push(ann);
-      }
-      persist();
+      } else changed = false;
+      if (changed) persist();
       closePopup();
       // Stay in point mode after a create so the user can keep batch-annotating.
       if (overlay) overlay.style.pointerEvents = "auto";
