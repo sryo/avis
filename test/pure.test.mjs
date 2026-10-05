@@ -57,9 +57,9 @@ test("inferControl", () => {
   assert.deepEqual([...edges.values], [8, 16, 8, 16]);
   assert.equal(t.inferControl("4px", "border-radius").shape, "corners");
   const len = t.inferControl("1.5rem", "font-size");
-  assert.deepEqual({ ...len }, { kind: "length", unit: "rem", step: 0.05, initial: 1.5 });
+  assert.deepEqual({ ...len }, { kind: "length", unit: "rem", step: 0.05 });
   assert.equal(t.inferControl("12px", "width").step, 1);
-  assert.deepEqual({ ...t.inferControl("0.5", "opacity") }, { kind: "number", step: 0.01, initial: 0.5 });
+  assert.deepEqual({ ...t.inferControl("0.5", "opacity") }, { kind: "number", step: 0.01 });
   assert.equal(t.inferControl("400", "font-weight").step, 1);
   assert.equal(t.inferControl("linear-gradient(red, blue)", "background").kind, "readonly");
 });

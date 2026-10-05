@@ -34,7 +34,18 @@
     if (m) return "#" + [m[1], m[2], m[3]].map((n) => (+n).toString(16).padStart(2, "0")).join("");
     if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
     if (/^#[0-9a-f]{3}$/i.test(s)) return "#" + s.slice(1).split("").map((c) => c + c).join("").toLowerCase();
-    return "#000000";
+    return namedHex(s) || "#000000";
+  }
+  // Resolves named colors via canvas; null unless opaque.
+  let colorCtx;
+  function namedHex(v) {
+    try {
+      colorCtx = colorCtx || document.createElement("canvas").getContext("2d");
+      colorCtx.fillStyle = "#010203";
+      colorCtx.fillStyle = v;
+      const h = colorCtx.fillStyle;
+      return h[0] === "#" && h !== "#010203" && !/^current/i.test(v) ? h : null;
+    } catch { return null; }
   }
   // Ring buffer of recent console.* output, sliced into each annotation at capture.
   const consoleBuffer = [];
@@ -574,7 +585,7 @@
   // Nodes, not innerHTML: Trusted Types pages reject HTML strings.
   function h(tag, cls, attrs, ...kids) {
     const e = document.createElement(tag);
-    e.className = cls;
+    if (cls) e.className = cls;
     for (const k in attrs) e.setAttribute(k, attrs[k]);
     e.append(...kids);
     return e;
@@ -1224,7 +1235,7 @@
     popup = h("div", "popup" + (isReply ? " reply" : ""), 0,
       h("div", "trail"),
       h("div", "label"),
-      h("textarea", "", { placeholder: isReply ? "reply…" : "What should change?" }),
+      h("textarea", 0, { placeholder: isReply ? "reply…" : "What should change?" }),
       h("div", "hint", 0, "click outside to save · esc to discard"));
     popup._ownsKeydown = ownsKeydown;
     popup.querySelector(".label").textContent = isReply
@@ -1259,6 +1270,9 @@
     // applicable, the toggle never mounts and the post-it stays comment-only.
     let previewSheet = null;
     const ruleBlocks = [];
+    // "block|property" → styleTweak; newest per property wins. Unplaceable saved tweaks stay as-is.
+    const edits = new Map();
+    let kept = isEdit && Array.isArray(existing.styleTweaks) ? existing.styleTweaks : [];
     if (!isReply) {
       const targetEl = el || resolveTarget(existing && existing.elementPath);
       if (targetEl) {
@@ -1269,15 +1283,25 @@
 
           const chev = h("span", "popup-tweaks-chevron");
           const toggle = h("button", "popup-tweaks-toggle", { type: "button" }, chev,
-            h("span", "", 0, `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`),
+            h("span", 0, 0, `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`),
             h("span", "popup-tweaks-leader", 0, "·".repeat(60)));
           const tweaksRoot = h("div", "popup-tweaks");
 
-          for (const entry of rules) {
-            const rb = buildRuleBlock(entry, previewSheet.set, previewSheet.clear);
-            ruleBlocks.push({ entry, decls: rb.decls, hydrateTweak: rb.hydrateTweak });
+          rules.forEach((entry, i) => {
+            const source = ruleSourceLabel(entry);
+            const rb = buildRuleBlock(entry, source, (decl, after) => {
+              const k = i + "|" + decl.property;
+              edits.delete(k);
+              edits.set(k, { selector: entry.selectorText, source, property: decl.property, before: decl.value, after });
+              previewSheet.set(decl.property, after);
+            }, (property) => {
+              edits.delete(i + "|" + property);
+              const last = [...edits.values()].filter((t) => t.property === property).pop();
+              last ? previewSheet.set(property, last.after) : previewSheet.clear(property);
+            });
+            ruleBlocks.push({ selector: entry.selectorText, hydrateTweak: rb.hydrateTweak });
             tweaksRoot.appendChild(rb.block);
-          }
+          });
 
           if (unreadable) {
             tweaksRoot.appendChild(h("div", "popup-tweaks-unreadable", 0,
@@ -1301,41 +1325,17 @@
           popup.insertBefore(toggle, hint);
           popup.insertBefore(tweaksRoot, hint);
 
-          // Edit rehydration: re-apply the saved tweaks visually + mark rows touched.
-          if (isEdit && Array.isArray(existing.styleTweaks)) {
-            for (const t of existing.styleTweaks) {
-              previewSheet.set(t.property, t.after);
-              for (const rb of ruleBlocks) {
-                if (rb.decls.some((d) => d.property === t.property)) {
-                  rb.hydrateTweak(t.property, t.after);
-                  break;
-                }
-              }
-            }
-          }
+          kept = kept.filter((t) => !(typeof t.after === "string" &&
+            ruleBlocks.some((rb) => rb.selector === t.selector && rb.hydrateTweak(t.property, t.after))));
         }
       }
     }
     popup._previewSheet = previewSheet;
 
     function collectTweaks() {
-      if (!previewSheet) return [];
-      const out = [];
-      for (const [property, after] of previewSheet.entries()) {
-        let foundEntry = null, beforeValue = "";
-        for (const rb of ruleBlocks) {
-          const d = rb.decls.find((dd) => dd.property === property);
-          if (d) { foundEntry = rb.entry; beforeValue = d.value; break; }
-        }
-        out.push({
-          selector: foundEntry ? foundEntry.selectorText : "(inline)",
-          source: foundEntry ? ruleSourceLabel(foundEntry) : "inline",
-          property,
-          before: beforeValue,
-          after,
-        });
-      }
-      return out;
+      const byProp = new Map();
+      for (const t of edits.values()) { byProp.delete(t.property); byProp.set(t.property, t); }
+      return [...kept, ...byProp.values()];
     }
 
     const ta = popup.querySelector("textarea");
@@ -1488,16 +1488,22 @@
     ["border-radius", ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"]],
   ];
 
-  // Read declarations off a CSSStyleRule (or our synthetic inline entry).
-  // CSSStyleDeclaration is array-like: keys 0..length-1 are property names.
   function readDeclarations(entry) {
     const s = entry.rule.style;
     const raw = [];
     for (let i = 0; i < s.length; i++) {
-      const property = s[i];
-      const value = (s.getPropertyValue(property) || "").trim();
-      if (!value) continue;
-      raw.push({ property, value, priority: s.getPropertyPriority ? s.getPropertyPriority(property) : "" });
+      let property = s[i];
+      let value = s.getPropertyValue(property).trim();
+      // var() in a shorthand leaves its longhands "": show the shorthand.
+      if (!value) {
+        const g = LONGHAND_GROUPS.find((x) => x[1].includes(property));
+        for (let p = g ? g[0] + "-" : property; !value && p.includes("-"); property = p) {
+          p = p.replace(/-[^-]*$/, "");
+          value = s.getPropertyValue(p).trim();
+        }
+        if (!value || raw.some((d) => d.property === property)) continue;
+      }
+      raw.push({ property, value, priority: s.getPropertyPriority(property) });
     }
     const byProp = new Map(raw.map((d) => [d.property, d]));
     const shorthandAt = new Map();
@@ -1532,20 +1538,18 @@
     if (s === "auto" || s === "inherit" || s === "initial" || s === "unset") return { raw: s };
     const m = s.match(/^(-?\d*\.?\d+)\s*(px|rem|em|%|vw|vh|fr|ch|ex)?$/i);
     if (!m) return null;
-    const n = parseFloat(m[1]);
-    if (Number.isNaN(n)) return null;
-    return { n, unit: (m[2] || fallbackUnit || "px").toLowerCase() };
+    return { n: parseFloat(m[1]), unit: (m[2] || fallbackUnit || "px").toLowerCase() };
   }
 
-  // "8px 16px 12px 4px" → {values:[t,r,b,l], unit}. Null on mixed units, auto, or invalid.
+  // "8px 16px 12px 4px" → {values:[t,r,b,l], unit}. Null on mixed nonzero units, auto, or invalid.
   function parseShorthand4(value) {
-    if (value == null) return null;
     const tokens = String(value).trim().split(/\s+/);
-    if (!tokens.length || tokens.length > 4) return null;
+    if (tokens.length > 4) return null;
     const parsed = tokens.map((t) => parseDimension(t, "px"));
     if (parsed.some((p) => !p || p.n == null)) return null;
-    const unit = parsed[0].unit;
-    if (parsed.some((p) => p.unit !== unit)) return null;
+    const units = new Set(parsed.filter((p) => p.n).map((p) => p.unit));
+    if (units.size > 1) return null;
+    const unit = [...units][0] || parsed[0].unit;
     const nums = parsed.map((p) => p.n);
     let t, r, b, l;
     if (nums.length === 1) [t, r, b, l] = [nums[0], nums[0], nums[0], nums[0]];
@@ -1565,13 +1569,14 @@
     return `${fmt(t)} ${fmt(r)} ${fmt(b)} ${fmt(l)}`;
   }
 
-  // Decide how to render a control for a value. Returns {kind, ...range/unit info}.
+  const unitStep = (unit) => /^(r?em|ch|ex)$/.test(unit) ? 0.05 : 1;
+
+  // → {kind, ...range/unit info}
   function inferControl(value, property) {
     const v = value.trim();
-    // Color: hex, rgb/rgba, hsl/hsla.
     if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return { kind: "color" };
     if (/^rgba?\(/i.test(v) || /^hsla?\(/i.test(v)) return { kind: "color" };
-    // 4-side / 4-corner shorthand → EdgeField.
+    if (/color|fill|stroke/.test(property) && /^[a-z]+$/i.test(v) && namedHex(v)) return { kind: "color" };
     if (property && (FOUR_SIDE_SHORTHANDS.has(property) || FOUR_CORNER_SHORTHANDS.has(property))) {
       const parsed = parseShorthand4(v);
       if (parsed) {
@@ -1583,28 +1588,21 @@
         };
       }
     }
-    // Length: number + recognized unit.
     const lenMatch = v.match(/^(-?\d+(?:\.\d+)?)(px|rem|em|%|vw|vh|fr|ch|ex)$/i);
     if (lenMatch) {
-      const n = parseFloat(lenMatch[1]);
       const unit = lenMatch[2].toLowerCase();
-      const step = (unit === "rem" || unit === "em" || unit === "ch" || unit === "ex") ? 0.05 : 1;
-      return { kind: "length", unit, step, initial: n };
+      return { kind: "length", unit, step: unitStep(unit) };
     }
-    // Bare number (no unit) - opacity, line-height, z-index, font-weight, flex-grow.
     if (/^-?\d+(?:\.\d+)?$/.test(v)) {
       const n = parseFloat(v);
-      const isFractional = !Number.isInteger(n) || (n >= 0 && n <= 1);
-      const step = isFractional ? 0.01 : 1;
-      return { kind: "number", step, initial: n };
+      const isFractional = !Number.isInteger(n) || (n >= 0 && n <= 1 && !/index|order|count|orphans|widows/.test(property));
+      return { kind: "number", step: isFractional ? 0.01 : 1 };
     }
     return { kind: "readonly" };
   }
 
-  // Preview-sheet manager. Constructable stylesheet is the happy path; some CSPs reject
-  // it (no `unsafe-inline` on style-src in strict mode), so we fall back to a <style>
-  // appended to <head>. Either way the override targets a unique selector for the picked
-  // element with !important so we beat all author rules without modifying them.
+  // A constructable sheet, or a <style> where CSP rejects one; !important on the
+  // element's unique selector beats author rules without touching them.
   const ownSheets = new WeakSet();
   function createPreviewSheet() {
     const tweaks = new Map(); // property → formatted value
@@ -1644,20 +1642,14 @@
         tweaks.clear();
         selector = null;
       },
-      entries() { return Array.from(tweaks.entries()); },
     };
   }
 
-  // Single text input for `length` (unit-bearing) and `number` (unitless) declarations.
-  // Replaces the old range slider. ArrowUp/Down step by decl.step; Shift = 10x.
+  // ArrowUp/Down step by decl.step; Shift = 10x.
   function buildLengthInput(decl, onChange) {
-    const row = document.createElement("div");
-    row.className = "popup-decl";
-    row.dataset.property = decl.property;
+    const row = h("div", "popup-decl");
 
-    const label = document.createElement("span");
-    label.className = "popup-decl-label";
-    label.textContent = decl.property;
+    const label = h("span", "popup-decl-label", 0, decl.property);
     row.appendChild(label);
 
     const input = document.createElement("input");
@@ -1668,9 +1660,7 @@
     input.value = decl.value;
     row.appendChild(input);
 
-    const suffix = document.createElement("span");
-    suffix.className = "popup-length-unit";
-    suffix.textContent = decl.kind === "length" ? decl.unit : "";
+    const suffix = h("span", "popup-length-unit", 0, decl.kind === "length" ? decl.unit : "");
     row.appendChild(suffix);
 
     function emit() {
@@ -1697,18 +1687,13 @@
 
     return {
       row,
-      setValue(v) {
-        input.value = (v == null) ? decl.value : String(v);
-      },
+      setValue(v) { input.value = v; },
     };
   }
 
-  // 4-edge / 4-corner widget with linked ↔ separate toggle. Emits a single CSS
-  // shorthand string so the existing previewSheet/styleTweaks path stays intact.
+  // Four sides or corners, linked or separate; emits one shorthand string.
   function buildEdgeField(decl, onChange) {
-    const row = document.createElement("div");
-    row.className = "popup-decl popup-decl-edges";
-    row.dataset.property = decl.property;
+    const row = h("div", "popup-decl popup-decl-edges");
 
     const sideKeys = decl.shape === "corners"
       ? ["tl", "tr", "br", "bl"]
@@ -1716,17 +1701,14 @@
     let values = decl.values.slice();
     let unit = decl.unit;
 
-    const label = document.createElement("span");
-    label.className = "popup-decl-label";
-    label.textContent = decl.property;
+    const label = h("span", "popup-decl-label", 0, decl.property);
 
     const allInput = document.createElement("input");
     allInput.type = "text";
     allInput.className = "popup-edge-all";
     allInput.spellcheck = false;
 
-    const grid = document.createElement("div");
-    grid.className = "popup-edge-grid";
+    const grid = h("div", "popup-edge-grid");
     grid.dataset.shape = decl.shape;
     grid.dataset.prop = decl.property;
     grid.dataset.active = "";
@@ -1785,23 +1767,15 @@
       }
     }
 
-    // Linked input: accept shorthand or single dimension.
+    function take(v) {
+      const parsed = parseShorthand4(v);
+      if (parsed) ({ values, unit } = parsed);
+      return parsed;
+    }
     allInput.addEventListener("change", () => {
-      const parsed = parseShorthand4(allInput.value);
-      if (parsed) {
-        values = parsed.values;
-        unit = parsed.unit;
-      } else {
-        const single = parseDimension(allInput.value, unit);
-        if (!single || single.n == null) {
-          allInput.value = formatShorthand4(values, unit);
-          return;
-        }
-        values = [single.n, single.n, single.n, single.n];
-        unit = single.unit;
-      }
+      const ok = take(allInput.value);
       allInput.value = formatShorthand4(values, unit);
-      emit();
+      if (ok) emit();
     });
     allInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); allInput.blur(); }
@@ -1815,9 +1789,13 @@
       inp.addEventListener("blur", () => { grid.dataset.active = ""; });
       inp.addEventListener("change", () => {
         const parsed = parseDimension(inp.value, unit);
-        if (!parsed || parsed.n == null) { inp.value = String(values[i]); return; }
+        // Sides share one unit: another unit only while the other sides are 0.
+        if (!parsed || parsed.n == null || (parsed.n && parsed.unit !== unit && values.some((v, j) => v && j !== i))) {
+          inp.value = String(values[i]);
+          return;
+        }
         values[i] = parsed.n;
-        unit = parsed.unit;
+        if (parsed.n) unit = parsed.unit;
         inp.value = String(parsed.n);
         emit();
       });
@@ -1827,8 +1805,8 @@
         const cur = parseFloat(inp.value);
         if (Number.isNaN(cur)) return;
         e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const next = cur + (e.key === "ArrowUp" ? step : -step);
+        const step = unitStep(unit) * (e.shiftKey ? 10 : 1);
+        const next = Math.round((cur + (e.key === "ArrowUp" ? step : -step)) * 1000) / 1000;
         values[i] = next;
         inp.value = String(next);
         emit();
@@ -1845,20 +1823,7 @@
     return {
       row,
       setValue(v) {
-        if (v == null) {
-          values = decl.values.slice();
-          unit = decl.unit;
-        } else {
-          const parsed = parseShorthand4(v);
-          if (parsed) { values = parsed.values; unit = parsed.unit; }
-          else {
-            const single = parseDimension(v, unit);
-            if (single && single.n != null) {
-              values = [single.n, single.n, single.n, single.n];
-              unit = single.unit;
-            }
-          }
-        }
+        take(v);
         setMode(values.every((x) => x === values[0]) ? "linked" : "separate");
         syncRadiusVars();
       },
@@ -1869,34 +1834,29 @@
     if (decl.kind === "edges") return buildEdgeField(decl, onChange);
     if (decl.kind === "length" || decl.kind === "number") return buildLengthInput(decl, onChange);
 
-    const row = document.createElement("div");
-    row.className = "popup-decl";
-    row.dataset.property = decl.property;
+    const row = h("div", "popup-decl");
 
-    const label = document.createElement("span");
-    label.className = "popup-decl-label";
-    label.textContent = decl.property;
+    const label = h("span", "popup-decl-label", 0, decl.property);
     row.appendChild(label);
 
     if (decl.kind === "readonly") {
-      const ro = document.createElement("span");
-      ro.className = "popup-decl-readonly";
-      ro.textContent = decl.value;
+      const ro = h("span", "popup-decl-readonly", 0, decl.value);
       ro.title = decl.value;
       row.appendChild(ro);
       return { row, setValue: () => {} };
     }
 
-    // Color
     const input = document.createElement("input");
     input.type = "color";
     input.value = rgbToHex(decl.value);
-    const badge = document.createElement("span");
-    badge.className = "popup-length-unit";
-    badge.textContent = input.value;
+    const badge = h("span", "popup-length-unit", 0, input.value);
+    // The picker has no alpha; keep the original's.
+    const alpha = decl.value.match(/(?:(?:[^,]*,){3}|\/)\s*([\d.]+)(%?)\s*\)$/);
+    const a = alpha ? alpha[1] / (alpha[2] ? 100 : 1) : 1;
     input.addEventListener("input", () => {
-      badge.textContent = input.value;
-      onChange(input.value);
+      const v = input.value;
+      badge.textContent = v;
+      onChange(a < 1 ? `rgba(${[1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16)).join(", ")}, ${a})` : v);
     });
     row.appendChild(input);
     row.appendChild(badge);
@@ -1904,26 +1864,21 @@
     return {
       row,
       setValue(v) {
-        const hex = rgbToHex(v == null ? decl.value : v);
+        const hex = rgbToHex(v);
         input.value = hex;
         badge.textContent = hex;
       },
     };
   }
 
-  function buildRuleBlock(entry, onTweak, onClear) {
-    const block = document.createElement("div");
-    block.className = "popup-rule";
+  function buildRuleBlock(entry, source, onTweak, onClear) {
+    const block = h("div", "popup-rule");
 
-    const sel = document.createElement("div");
-    sel.className = "popup-rule-selector";
-    sel.textContent = entry.selectorText;
+    const sel = h("div", "popup-rule-selector", 0, entry.selectorText);
     sel.title = entry.selectorText;
     block.appendChild(sel);
 
-    const src = document.createElement("div");
-    src.className = "popup-rule-source";
-    src.textContent = ruleSourceLabel(entry);
+    const src = h("div", "popup-rule-source", 0, source);
     block.appendChild(src);
 
     const decls = readDeclarations(entry);
@@ -1931,7 +1886,7 @@
     for (const decl of decls) {
       const built = buildDeclarationRow(decl, (formatted) => {
         built.row.classList.add("touched");
-        onTweak(decl.property, formatted);
+        onTweak(decl, formatted);
         undoBtn.hidden = false;
       });
       rowsByProp.set(decl.property, { decl, ...built });
@@ -1957,13 +1912,14 @@
 
     return {
       block,
-      decls,
       hydrateTweak(property, afterValue) {
         const info = rowsByProp.get(property);
-        if (!info || info.decl.kind === "readonly") return;
+        if (!info || info.decl.kind === "readonly") return false;
         info.setValue(afterValue);
         info.row.classList.add("touched");
         undoBtn.hidden = false;
+        onTweak(info.decl, afterValue);
+        return true;
       },
     };
   }
