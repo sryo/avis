@@ -142,12 +142,13 @@ test("markers on one element stack in order across renders", () =>
     assert.deepEqual(ids.slice(1).map((id) => markerFor(document, id)._stackIndex), [0, 1]);
   }));
 
-test("a render parses each annotation's url once, not once for the toolbar and again for markers", () => {
+test("each annotation's url is parsed once across renders", () => {
   let built = 0;
   return withPage(`<h1 id="a">A</h1>`, ({ document }) => {
-    built = 0;
-    shadowOf(document).querySelector("[data-act=point]").click();
     assert.equal(built, 3);
+    shadowOf(document).querySelector("[data-act=point]").click();
+    shadowOf(document).querySelector("[data-act=point]").click();
+    assert.equal(built, 3, "later renders reuse the parsed paths");
   }, {
     before: (w) => {
       seed([1, 2, 3].map((i) => ({ id: "u" + i, comment: "c", url: "http://localhost:3000/a?q=" + i, elementPath: "#a" })))(w);

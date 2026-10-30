@@ -264,10 +264,15 @@
     persistOK,
   };
 
+  // Every render filters by page, so each url string is parsed once.
+  const pathOf = new Map();
   function isCurrentPage(a) {
     if (!a || !a.url) return false;
-    try { return new URL(a.url).pathname === location.pathname; }
-    catch { return false; }
+    if (!pathOf.has(a.url)) {
+      try { pathOf.set(a.url, new URL(a.url).pathname); }
+      catch { pathOf.set(a.url, null); }
+    }
+    return pathOf.get(a.url) === location.pathname;
   }
 
   function currentPageAnnotations() {
