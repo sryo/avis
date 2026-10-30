@@ -1199,6 +1199,7 @@
     } else if (popup) {
       closePopup();
       if (overlay) overlay.style.pointerEvents = "auto";
+      render();
       // Replay hover so the outline reappears without waiting for a mousemove.
       if (state.pointing) { lastHoverEl = null; onHover({ clientX: lastHoverX, clientY: lastHoverY }); }
     } else if (state.pointing) {

@@ -71,6 +71,27 @@ test("Escape that closes the popup or exits point mode does not reach page liste
     assert.equal(pageSaw, 1, "Escape avis does not consume reaches the page");
   }));
 
+test("Escape on a new pin's popup removes its placeholder marker and count", () =>
+  withUI({}, ({ ui }) => {
+    ui.pick();
+    assert.equal(ui.shadow.querySelectorAll(".marker.tentative").length, 1);
+    assert.equal(ui.shadow.querySelector(".copy-count").textContent, "1");
+    ui.key(ui.shadow.querySelector(".popup textarea"), "Escape");
+    assert.equal(ui.shadow.querySelectorAll(".marker").length, 0);
+    assert.equal(ui.shadow.querySelector(".copy-count").textContent, "", "count hidden");
+  }));
+
+test("Escape on an edit popup clears the marker's tentative style", () =>
+  withUI({
+    before: (w) => w.localStorage.setItem("avis:annotations", JSON.stringify([
+      { id: "u1", comment: "tighten this", source: "user", elementPath: "#a", url: "http://localhost:3000/a" }])),
+  }, ({ ui }) => {
+    ui.key(ui.marker("u1"), "Enter");
+    assert.ok(ui.marker("u1").classList.contains("tentative"));
+    ui.key(ui.shadow.querySelector(".popup textarea"), "Escape");
+    assert.equal(ui.marker("u1").classList.contains("tentative"), false);
+  }));
+
 test("Escape during a marker drag cancels the drag and stays in point mode", () =>
   withUI({}, ({ avis, ui }) => {
     const id = avis.add("#a", "note");
