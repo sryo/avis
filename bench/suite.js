@@ -131,6 +131,15 @@
       addMany(env, 100);
       return { env, ms: 0, bytes: (env.win.localStorage.getItem("avis:annotations") || "").length };
     },
+    "copy bytes @100": (src) => {
+      const env = mount(src);
+      addMany(env, 100);
+      let text = "";
+      // The click handler builds the text and calls writeText before its first await.
+      Object.defineProperty(env.win.navigator, "clipboard", { value: { writeText: async (s) => { text = s; } }, configurable: true });
+      env.doc.getElementById("__avis_host").shadowRoot.querySelector("[data-act=copy]").click();
+      return { env, ms: 0, bytes: text.length };
+    },
     "markWorking+unmark @100": (src) => {
       const env = mount(src);
       addMany(env, 100);

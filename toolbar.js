@@ -1925,7 +1925,7 @@
     const text = `Feedback pinned with avis on ${location.origin}. Find each element's source ` +
       "(sourceFile, reactComponents, then text/elementPath) and apply its comment; " +
       "styleTweaks are CSS edits to the rule at selector/source.\n\n" +
-      JSON.stringify(api.summary({ console: true }), null, 2);
+      "[\n" + api.summary({ console: true }).map((a) => JSON.stringify(a)).join(",\n") + "\n]";
     let ok = true;
     try { await navigator.clipboard.writeText(text); }
     catch { ok = false; }

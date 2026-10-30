@@ -135,6 +135,10 @@ test("copy counts, enables and copies every page's annotations", () =>
     assert.match(lead, /^Feedback pinned with avis on http:\/\/localhost:3000\. /);
     assert.deepEqual(JSON.parse(json), JSON.parse(JSON.stringify(avis.summary({ console: true }))));
     assert.equal(JSON.parse(json).length, Number(count.textContent));
+    // One compact entry per line: readable in a paste without pretty-print's indent bytes.
+    const lines = json.split("\n");
+    assert.equal(lines.length, JSON.parse(json).length + 2);
+    lines.slice(1, -1).forEach((l, i) => assert.equal(l.replace(/,$/, ""), JSON.stringify(avis.summary({ console: true })[i])));
   }));
 
 test("acknowledged markers get a distinct class that clears on the next status", () =>
