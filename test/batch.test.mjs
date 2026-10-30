@@ -68,7 +68,7 @@ test("markWorking([ids]) sets status and marker class with one write and at most
     assert.deepEqual([...avis.unmarkWorking([ids[0], ids[1]])], [true, true]);
     assert.deepEqual([...avis.acknowledge([ids[2]])], [true]);
     assert.equal(counts.writes, 2);
-    assert.deepEqual([...avis.summary().map((s) => s.status)], ["pending", "pending", "acknowledged"]);
+    assert.deepEqual([...avis.summary().map((s) => s.status)], [undefined, undefined, "acknowledged"]);
   }));
 
 test("a batch that changes nothing does not write", () =>

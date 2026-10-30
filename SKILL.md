@@ -22,7 +22,7 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
 
 3. **Hand off.** Say: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait.
 
-4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Echo one line per annotation.
+4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, so is a `pending` status, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Echo one line per annotation.
 
 5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute). Group related annotations.
 

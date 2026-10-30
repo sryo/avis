@@ -206,7 +206,7 @@
           // A wrapper whose only text is the pin's (<button><span>Save</span>) repeats it.
           if (out.parentContext && out.parentContext.text === a.text) delete out.parentContext.text;
           if (!opts.console && a.consoleLog && a.consoleLog.length) out.consoleCount = a.consoleLog.length;
-          out.status = a.status || "pending";
+          if (a.status) out.status = a.status;
           return out;
         });
     },

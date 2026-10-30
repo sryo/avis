@@ -30,7 +30,7 @@ test("summary() strips null/empty fields and reports consoleCount instead of con
     const id = avis.add("#cta", "bigger");
     const [s] = plain(avis.summary());
     assert.equal(s.id, id);
-    assert.equal(s.status, "pending");
+    assert.equal("status" in s, false);
     assert.equal("consoleLog" in s, false);
     assert.ok(s.consoleCount >= 5);
     for (const k of ["replyTo", "sourceFile", "reactComponents", "styleTweaks", "priorClicks"]) {

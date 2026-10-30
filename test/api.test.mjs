@@ -23,7 +23,7 @@ test("add returns an id; rejects missing comment or unresolved selector", () =>
     assert.equal(s.comment, "make it bigger");
     assert.equal(s.source, "agent");
     assert.equal(s.elementPath, "#cta");
-    assert.equal(s.status, "pending");
+    assert.equal("status" in s, false, "pending is the default and omitted");
   }));
 
 test("status transitions return bool and toggle the marker class", () =>
@@ -37,7 +37,7 @@ test("status transitions return bool and toggle the marker class", () =>
     assert.equal(avis.summary()[0].status, "acknowledged");
     assert.ok(!marker(window, id).classList.contains("working"));
     assert.equal(avis.unmarkWorking(id), true);
-    assert.equal(avis.summary()[0].status, "pending");
+    assert.equal("status" in avis.summary()[0], false);
     assert.equal(avis.markWorking("missing"), false);
   }));
 
