@@ -7,6 +7,7 @@ Field names follow the [agentation v1.1 schema](https://www.agentation.com/schem
 Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `element`, `elementPath`, `text`, `parentContext`, `priorClicks`, `url`, `styleTweaks`, `consoleCount`, `status`.
 
 - Fields that are null, `""` or `[]` are omitted, and so are empty fields inside `parentContext`. `parentContext.text` is also omitted when it equals `text`.
+- `url` is the path, search and hash; every annotation shares the page's origin (`info().page` has it).
 - `consoleCount` replaces `consoleLog` unless you pass `{console: true}`.
 - `{page: true}` keeps only annotations whose `url` pathname matches the current page.
 - `{status: "working"}` or `{status: ["pending", "acknowledged"]}` filters by status.
@@ -29,7 +30,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `accessibility` | `role`, `aria-label`, `name`, `placeholder`, `type` (full annotation only). |
 | `consoleLog` | Up to 20 `{level, ts, msg}` entries from `console.log/warn/error` in the 60s before the pin. Each argument is capped at 200 chars and 64 property reads. avis's own `[avis]` lines are excluded. On pages whose CSP blocks inline scripts, Chrome-family browsers capture nothing here and `sourceFile`/`reactComponents` stay empty. |
 | `priorClicks` | Last 3 page clicks as `{target, ts}`, to replay menus or overlays that were open. |
-| `url`, `pageTitle` | Where the pin was made. |
+| `url`, `pageTitle` | Where the pin was made (`summary()` gives `url` without the origin). |
 | `styleTweaks` | Array of `{selector, source, property, before, after}`, present when the user edited values in the post-it's `tweak rules` panel. |
 | `computedStyles`, `outerHTML`, `cssClasses` | Full annotation only. `outerHTML` is capped at 1000 chars. |
 | `boundingBox`, `viewport`, `x`, `y`, `client`, `timestamp` | Geometry and environment at capture time (full annotation only). |

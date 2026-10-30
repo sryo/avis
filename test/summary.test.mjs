@@ -139,3 +139,10 @@ test("summary() drops parentContext.text when it equals text; annotations keep i
     assert.deepEqual(s.parentContext, { element: "button" });
     assert.equal(plain(avis.annotations)[0].parentContext.text, "Save");
   }, { html: `<button id="save"><span>Save</span></button>` }));
+
+test("summary() gives url as path, search and hash; the origin is the page's own", () =>
+  withPage(({ avis }) => {
+    avis.add("#cta", "x");
+    assert.equal(plain(avis.summary())[0].url, "/a?tab=2#plans");
+    assert.equal(plain(avis.annotations)[0].url, "http://localhost:3000/a?tab=2#plans");
+  }, { url: "http://localhost:3000/a?tab=2#plans" }));

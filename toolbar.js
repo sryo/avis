@@ -188,6 +188,7 @@
     summary(opts = {}) {
       const statuses = opts.status == null ? null : [].concat(opts.status);
       const list = opts.page ? currentPageAnnotations() : state.annotations;
+      const origin = location.origin + "/";
       return list
         .filter((a) => !statuses || statuses.includes(a.status || "pending"))
         .map((a) => {
@@ -200,6 +201,8 @@
               ? Object.fromEntries(Object.entries(v).filter(([, x]) => !isEmpty(x)))
               : v;
           }
+          // localStorage is per origin, so every annotation shares the page's.
+          if (out.url && out.url.startsWith(origin)) out.url = out.url.slice(origin.length - 1);
           // A wrapper whose only text is the pin's (<button><span>Save</span>) repeats it.
           if (out.parentContext && out.parentContext.text === a.text) delete out.parentContext.text;
           if (!opts.console && a.consoleLog && a.consoleLog.length) out.consoleCount = a.consoleLog.length;
