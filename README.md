@@ -10,6 +10,8 @@ Pairs with a browser MCP server. [perch](https://github.com/sryo/perch) (macOS) 
 git clone https://github.com/sryo/avis ~/.claude/skills/avis
 ```
 
-That's Claude Code's skills directory; clone wherever your agent loads skills from.
+That's Claude Code's skills folder. Codex and GitHub Copilot look in `~/.agents/skills`, so for those clone into `~/.agents/skills/avis` instead.
 
-`/avis` should appear in your slash-command list. Restart your client if it doesn't.
+Start it with `/avis` (Claude Code, Copilot) or `$avis` (Codex). Restart your agent if it doesn't show up.
+
+avis needs an agent running on your Mac. Cloud agents can't reach your browser.

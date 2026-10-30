@@ -1,4 +1,8 @@
-name: avis
-description: Point at elements on a webpage and send the feedback back to the agent. Use for design reviews, annotations, or any avis pass on a browser tab.
-mcp_servers:
-  - perch
+interface:
+  display_name: avis
+  short_description: Point at elements on a page and send the feedback to the agent.
+dependencies:
+  tools:
+    - type: mcp
+      value: perch
+      transport: stdio

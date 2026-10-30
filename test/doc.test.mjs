@@ -49,8 +49,11 @@ for (const file of ["SKILL.md", ...REFS]) {
 
   test(`${file}: only names perch tools that exist, no stale perch contract`, () => {
     const text = read(file);
-    const tools = [...text.matchAll(/mcp__perch__(\w+)/g)].map((m) => m[1]);
-    assert.deepEqual(tools.filter((t) => !PERCH_TOOLS.has(t)), []);
+    // Calls are written bare (`list_tabs { ... }`), prefixed only in examples of client naming.
+    const calls = [...text.matchAll(/(?:^|[`\s])(?:mcp__perch__)?([a-z][a-z_]+) \{/gm)].map((m) => m[1]);
+    const prefixed = [...text.matchAll(/mcp__perch__(\w+)/g)].map((m) => m[1]);
+    assert.deepEqual([...calls, ...prefixed].filter((t) => !PERCH_TOOLS.has(t)), []);
+    if (file === "SKILL.md") assert.ok(calls.includes("list_tabs") && calls.includes("eval_js"));
     assert.doesNotMatch(text, /get_html|page_state|JSON\.stringify\(\s*(window\.)?__avis/);
   });
 

@@ -1,6 +1,6 @@
 ---
 name: avis
-description: Point at elements on a webpage and send the feedback back to Claude. Use for design reviews, annotations, or any /avis pass on a browser tab. Offer to run /avis (never unsolicited) when the user is working on UI, wants feedback on a page, says "let me show you what's wrong", or asks for a design review of a live URL.
+description: Point at elements on a webpage and send the feedback back to the agent. Use for design reviews, annotations, or any /avis pass on a browser tab. Offer to run /avis (never unsolicited) when the user is working on UI, wants feedback on a page, says "let me show you what's wrong", or asks for a design review of a live URL.
 allowed-tools: mcp__perch__* Read Bash(lsof:*)
 ---
 
@@ -8,15 +8,15 @@ allowed-tools: mcp__perch__* Read Bash(lsof:*)
 
 A floating toolbar goes onto the user's open page. They click `+ annotate`, point at elements and leave comments. When they type "done" you read the annotations back, edit code, and resolve each one as you go.
 
-Needs [perch](https://github.com/sryo/perch). Install, permissions and fallbacks: `references/setup.md`. Annotation fields: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
+Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefix (`mcp__perch__list_tabs`). `<skill-dir>` is the folder holding this SKILL.md. Install, permissions and fallbacks: `references/setup.md`. Annotation fields: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
 
 ## Steps
 
-1. **Pick the tab.** `mcp__perch__list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If a call returns `stale_tab`, re-pick the tab.
+1. **Pick the tab.** `list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If a call returns `stale_tab`, re-pick the tab.
 
 2. **Mount and verify in one call.** If any call returns `tab_not_visible`, `activate_tab { target }` and retry.
    ```
-   mcp__perch__eval_js { script_path: "~/.claude/skills/avis/toolbar.js", script: "return __avis.info()", target }
+   eval_js { script_path: "<skill-dir>/toolbar.js", script: "return __avis.info()", target }
    ```
    perch runs the file, then the script, in one body, so the toolbar source never enters your context. Re-injecting is a no-op. You get `{v, page, total, onPage, pending, working, persistOK}`. perch stringifies return values, so never wrap them in `JSON.stringify`. If `persistOK` is false, warn that annotations won't survive a reload. Existing annotations (`total > 0`) are pending work: leave them, and call `__avis.clear()` only if the user asks to start fresh.
 

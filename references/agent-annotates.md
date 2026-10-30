@@ -12,10 +12,10 @@ The user can flip the direction and ask you to pin comments. Typical requests:
 
 1. Pick the tab and mount the toolbar (SKILL.md steps 1 and 2).
 2. Gather what the request needs:
-   - `mcp__perch__get_text` for page text, or `get_text { html: true }` for markup. Output is capped at 20000 chars with a `[truncated: ...]` marker; page with `offset` / `maxChars`.
-   - `mcp__perch__accessibility_snapshot` for refs and roles.
-   - `git log`, `git diff` and `Read` for code context.
-   - `mcp__perch__screenshot` when the issue is visual.
+   - `get_text` for page text, or `get_text { html: true }` for markup. Output is capped at 20000 chars with a `[truncated: ...]` marker; page with `offset` / `maxChars`.
+   - `accessibility_snapshot` for refs and roles.
+   - `git log`, `git diff` and the source files for code context.
+   - `screenshot` when the issue is visual.
 3. Pin every finding in one `eval_js` call:
    ```
    return [
