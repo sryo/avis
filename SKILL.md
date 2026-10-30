@@ -1,6 +1,6 @@
 ---
 name: avis
-description: Point at elements on a webpage and send the feedback back to the agent. Use for design reviews, annotations, or any /avis pass on a browser tab. Offer to run /avis (never unsolicited) when the user is working on UI, wants feedback on a page, says "let me show you what's wrong", or asks for a design review of a live URL.
+description: Pin comments on elements of a live webpage and hand them to the agent (/avis). Offer it (never unsolicited) for UI work, page feedback, design reviews of a URL, or "let me show you what's wrong".
 allowed-tools: mcp__perch__* Read Bash(lsof:*)
 ---
 
@@ -22,7 +22,7 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
 
 3. **Hand off.** Say: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait.
 
-4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, so is a `pending` status, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Echo one line per annotation.
+4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, so is a `pending` status, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Otherwise say how many came back and how you'll group them.
 
 5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute). Group related annotations.
 

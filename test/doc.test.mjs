@@ -70,3 +70,14 @@ test("SKILL.md activates an inactive tab before mounting instead of waiting for 
 test("SKILL.md resolves one group and marks the next working in a single call", () => {
   assert.match(read("SKILL.md"), /return \[__avis\.resolve\([^)]*\), __avis\.markWorking\(/);
 });
+
+test("SKILL.md reads back with a count and grouping, not one echoed line per annotation", () => {
+  const step4 = read("SKILL.md").split("4. **Read back**")[1].split("5. **Act")[0];
+  assert.doesNotMatch(step4, /one line per annotation/);
+  assert.match(step4, /how many/);
+});
+
+test("frontmatter description stays short; it loads in every session", () => {
+  const desc = read("SKILL.md").split("---")[1].match(/^description: (.*)$/m)[1];
+  assert.ok(desc.length <= 220, `${desc.length} chars`);
+});
