@@ -329,11 +329,9 @@
     if (raw !== storedRaw) { state.annotations = load(storedRaw = raw); render(); }
   }));
 
+  // React's expando is an own property; for...in would walk ~300 inherited DOM keys.
   function getFiberKey(el) {
-    for (const k in el) {
-      if (k.startsWith("__reactFiber$")) return k;
-    }
-    return null;
+    return Object.keys(el).find((k) => k.startsWith("__reactFiber$")) || null;
   }
 
   // Fiber tags that aren't user components: host nodes (5, 6, 26, 27) and internal wrappers.

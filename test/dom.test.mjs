@@ -95,3 +95,16 @@ test("discoverMatchedRules: default-state author rules + inline, skips pseudo an
     assert.equal(unreadable, 0);
     assert.deepEqual([...rules.map((r) => r.selectorText)], [".card", ".other, .card", ".card", "(inline)"]);
   }));
+
+test("React lookup reads only the element's own keys, not inherited DOM properties", () =>
+  withPage(`<p id="p">x</p>`, ({ window, document, t }) => {
+    function Card() {}
+    const proto = window.HTMLElement.prototype;
+    Object.defineProperty(proto, "__reactFiber$inherited", { value: { tag: 0, type: Card, return: null }, enumerable: true, configurable: true });
+    try {
+      const el = document.getElementById("p");
+      assert.equal(t.getReactInfo(el), null);
+      el["__reactFiber$own"] = { tag: 0, type: Card, return: null };
+      assert.match(t.getReactInfo(el).componentPath, /Card/);
+    } finally { delete proto["__reactFiber$inherited"]; }
+  }));
