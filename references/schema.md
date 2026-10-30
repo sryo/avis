@@ -6,7 +6,7 @@ Field names follow the [agentation v1.1 schema](https://www.agentation.com/schem
 
 Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `element`, `elementPath`, `text`, `parentContext`, `priorClicks`, `url`, `styleTweaks`, `consoleCount`, `status`.
 
-- Fields that are null, `""` or `[]` are omitted, and so are empty fields inside `parentContext`.
+- Fields that are null, `""` or `[]` are omitted, and so are empty fields inside `parentContext`. `parentContext.text` is also omitted when it equals `text`.
 - `consoleCount` replaces `consoleLog` unless you pass `{console: true}`.
 - `{page: true}` keeps only annotations whose `url` pathname matches the current page.
 - `{status: "working"}` or `{status: ["pending", "acknowledged"]}` filters by status.

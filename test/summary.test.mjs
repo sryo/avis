@@ -130,3 +130,12 @@ test("parentContext.text starts with nearbyText, so summary() loses nothing with
     assert.equal(a.nearbyText.length, 80);
     assert.ok(a.parentContext.text.startsWith(a.nearbyText));
   }, { html: `<p id="long"><b>x</b>${"word ".repeat(60)}</p>` }));
+
+test("summary() drops parentContext.text when it equals text; annotations keep it", () =>
+  withPage(({ avis }) => {
+    avis.add("#save span", "x");
+    const [s] = plain(avis.summary());
+    assert.equal(s.text, "Save");
+    assert.deepEqual(s.parentContext, { element: "button" });
+    assert.equal(plain(avis.annotations)[0].parentContext.text, "Save");
+  }, { html: `<button id="save"><span>Save</span></button>` }));
