@@ -1136,7 +1136,8 @@
       const reads = [];
       markers.forEach((m) => {
         // Detached cached nodes return zero rects; re-resolve so markers don't silently freeze.
-        if (!m._targetEl || !m._targetEl.isConnected) {
+        // A target that never resolved is checkNav's to pick up, not every frame's.
+        if (m._targetEl && !m._targetEl.isConnected) {
           m._targetEl = resolveTarget(m._elementPath);
         }
         const el = m._targetEl;

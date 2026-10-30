@@ -42,6 +42,32 @@ test("an orphaned marker sits at its capture-time page position, following scrol
     }]),
   }));
 
+test("scroll frames don't re-query an orphan's selector; the nav poll picks up its target", () =>
+  withPage(`<div style="height:4000px"></div>`, async ({ window, document }) => {
+    const m = markerFor(document, "o1");
+    await until(window, () => m.style.left);
+    const qs = document.querySelector;
+    let probes = 0;
+    document.querySelector = function (...a) { if (a[0] === "#late") probes++; return qs.apply(this, a); };
+    for (let y = 1; y <= 3; y++) {
+      window.scrollTo(0, y * 50);
+      document.dispatchEvent(new window.Event("scroll"));
+      await until(window, () => m.style.top === Math.round(239 - window.scrollY) + "px");
+    }
+    document.querySelector = qs;
+    assert.equal(probes, 0);
+    const late = document.createElement("p");
+    late.id = "late";
+    document.body.appendChild(late);
+    await until(window, () => m._targetEl === late);
+    assert.ok(m._targetEl === late, "re-anchored by checkNav");
+  }, {
+    before: seed([{
+      id: "o1", comment: "gone", url: "http://localhost:3000/a", elementPath: "#late",
+      boundingBox: { x: 100, y: 50, width: 40, height: 20 }, viewport: { scrollX: 0, scrollY: 200 },
+    }]),
+  }));
+
 test("page mousedown records a 40-char text label without reading the whole subtree", () => {
   const words = Array.from({ length: 400 }, (_, i) => `  word${i}\n\t`).join("<span> nested </span>");
   return withPage(`<main id="big">\n   ${words}</main><p id="short">  hi   there </p><div id="empty">  </div>`, ({ window, document, avis }) => {
