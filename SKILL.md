@@ -12,7 +12,7 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
 
 ## Steps
 
-1. **Pick the tab.** `list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If a call returns `stale_tab`, re-pick the tab.
+1. **Pick the tab.** `list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If the row isn't `active`, call `activate_tab { target }` before mounting: `eval_js` only runs in the tab its window shows. If a call returns `stale_tab`, re-pick the tab.
 
 2. **Mount and verify in one call.** If any call returns `tab_not_visible`, `activate_tab { target }` and retry.
    ```
@@ -26,14 +26,12 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
 
 5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute). Group related annotations.
 
-6. **Show your work, clean up as you go.** Status calls take one id or an array. An array does one write and one re-render and returns one result per id, so batch:
+6. **Show your work, clean up as you go.** Status calls take one id or an array. An array does one write and one re-render and returns one result per id. Batch them, and move from one group to the next in a single call:
    ```
    return __avis.markWorking(["a1", "a2"])
-   return __avis.resolve(["a1", "a2"])
-   return __avis.dismiss(["a3"], "design intent")   // [{id, comment, reason}]
+   return [__avis.resolve(["a1", "a2"]), __avis.markWorking(["a3"])]
+   return __avis.dismiss(["a4"], "design intent")   // [{id, comment, reason}]
    ```
-   - `__avis.reveal(id)` scrolls to one marker; skip it in batch passes.
-   - `__avis.acknowledge(ids)` optionally marks "seen, will address".
    - `__avis.dismiss(ids, reason)` for false positives or won't-fix; report the reasons.
    - Skipped one (couldn't locate, ambiguous)? `__avis.unmarkWorking(ids)` and tell the user which and why.
    - `__avis.clear()` ends a fast full pass instead of per-id resolves.

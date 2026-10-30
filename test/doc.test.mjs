@@ -61,3 +61,12 @@ for (const file of ["SKILL.md", ...REFS]) {
     assert.doesNotMatch(read(file), /—/);
   });
 }
+
+test("SKILL.md activates an inactive tab before mounting instead of waiting for tab_not_visible", () => {
+  const step1 = read("SKILL.md").split("2. **Mount")[0];
+  assert.match(step1, /isn't `active`.*activate_tab \{ target \}/s);
+});
+
+test("SKILL.md resolves one group and marks the next working in a single call", () => {
+  assert.match(read("SKILL.md"), /return \[__avis\.resolve\([^)]*\), __avis\.markWorking\(/);
+});
