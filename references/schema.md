@@ -9,7 +9,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 - Fields that are null, `""` or `[]` are omitted, and so are empty fields inside `parentContext`. `parentContext.text` is also omitted when it equals `text`.
 - `status` is omitted when it is `pending`.
 - `url` is the path, search and hash; every annotation shares the page's origin (`info().page` has it).
-- `consoleCount` replaces `consoleLog` unless you pass `{console: true}`.
+- `consoleCount` replaces `consoleLog` unless you pass `{console: true}`. There, consecutive identical entries collapse into the first one with a count `n`; `consoleCount` counts them all.
 - `{page: true}` keeps only annotations whose `url` pathname matches the current page.
 - `{status: "working"}` or `{status: ["pending", "acknowledged"]}` filters by status.
 

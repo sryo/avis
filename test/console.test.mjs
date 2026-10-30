@@ -87,3 +87,17 @@ test("avis's own [avis] logs reach the page console but not the capture buffer",
     },
   });
 });
+
+test("summary({console:true}) collapses consecutive repeats into one entry with a count", () =>
+  withPage(({ window, avis }) => {
+    for (let i = 0; i < 3; i++) window.console.warn("retrying");
+    window.console.error("boom");
+    window.console.warn("retrying");
+    avis.add("#cta", "x");
+    const [s] = JSON.parse(JSON.stringify(avis.summary({ console: true })));
+    assert.deepEqual(s.consoleLog.map(({ level, msg, n }) => [level, msg, n]),
+      [["warn", "retrying", 3], ["error", "boom", undefined], ["warn", "retrying", undefined]]);
+    assert.ok(s.consoleLog.every((e) => typeof e.ts === "number"));
+    assert.equal(avis.annotations[0].consoleLog.length, 5, "full annotations keep every entry");
+    assert.equal(avis.summary()[0].consoleCount, 5);
+  }));

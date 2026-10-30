@@ -126,6 +126,14 @@
       const ms = time(() => { for (let i = 0; i < 20; i++) out = env.avis.summary(); });
       return { env, ms, bytes: JSON.stringify(out).length };
     },
+    "summary({console}) bytes, noisy log @10": (src) => {
+      const env = mount(src);
+      // A dev page retrying a request: bursts of the same warning and error.
+      for (let i = 0; i < 15; i++) env.win.console.warn("fetch /api/plans failed, retrying", { attempt: 1 });
+      for (let i = 0; i < 5; i++) env.win.console.error("Failed to load resource: 503");
+      addMany(env, 10);
+      return { env, ms: 0, bytes: JSON.stringify(env.avis.summary({ console: true })).length };
+    },
     "storage bytes @100": (src) => {
       const env = mount(src);
       addMany(env, 100);

@@ -179,6 +179,17 @@
     try { return document.querySelector(path); } catch { return null; }
   };
 
+  // Consecutive identical entries become the first one plus a count `n`.
+  function collapseRepeats(log) {
+    const out = [];
+    for (const e of log) {
+      const last = out[out.length - 1];
+      if (last && last.level === e.level && last.msg === e.msg) last.n = (last.n || 1) + 1;
+      else out.push({ ...e });
+    }
+    return out;
+  }
+
   const isEmpty = (v) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
 
   const api = {
@@ -206,6 +217,7 @@
           // A wrapper whose only text is the pin's (<button><span>Save</span>) repeats it.
           if (out.parentContext && out.parentContext.text === a.text) delete out.parentContext.text;
           if (!opts.console && a.consoleLog && a.consoleLog.length) out.consoleCount = a.consoleLog.length;
+          if (out.consoleLog) out.consoleLog = collapseRepeats(out.consoleLog);
           if (a.status) out.status = a.status;
           return out;
         });
