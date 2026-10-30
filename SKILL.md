@@ -8,7 +8,7 @@ allowed-tools: mcp__perch__* Read Bash(lsof:*)
 
 A floating toolbar goes onto the user's open page. They click `+ annotate`, point at elements and leave comments. When they type "done" you read the annotations back, edit code, and resolve each one as you go.
 
-Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefix (`mcp__perch__list_tabs`). `<skill-dir>` is the folder holding this SKILL.md. Install, permissions and fallbacks: `references/setup.md`. Annotation fields: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
+Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefix (`mcp__perch__list_tabs`). `<skill-dir>` is the folder holding this SKILL.md. Install, permissions and fallbacks: `references/setup.md`. Annotation fields, only if a field is unclear: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
 
 ## Steps
 

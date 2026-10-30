@@ -81,3 +81,7 @@ test("frontmatter description stays short; it loads in every session", () => {
   const desc = read("SKILL.md").split("---")[1].match(/^description: (.*)$/m)[1];
   assert.ok(desc.length <= 220, `${desc.length} chars`);
 });
+
+test("SKILL.md marks schema.md as optional, so a normal pass doesn't read it", () => {
+  assert.match(read("SKILL.md"), /only if a field is unclear: `references\/schema\.md`/);
+});
