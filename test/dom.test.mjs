@@ -31,6 +31,20 @@ test("getSelector round-trips to the same element", () =>
     }
   }));
 
+test("getSelector skips :nth-of-type when classes already tell siblings apart", () =>
+  withPage(`<div><section class="a"><p>x</p></section><section class="b"><p>y</p></section></div>`, ({ document, t }) => {
+    assert.equal(t.getSelector(document.querySelectorAll("p")[1]), "section.b > p");
+  }));
+
+test("getSelector anchors the path at the nearest uniquely labeled ancestor", () =>
+  withPage(`<main><div class="col"><div id="panel"><div class="row"><ul><li>a</li><li>b</li></ul></div></div></div>
+    <div class="col"><div><div class="row"><ul><li>a</li><li>b</li></ul></div></div></div></main>`, ({ document, t }) => {
+    const el = document.querySelector("#panel li:nth-child(2)");
+    const sel = t.getSelector(el);
+    assert.equal(sel, "#panel > div.row > ul > li:nth-of-type(2)");
+    assert.equal(document.querySelector(sel), el);
+  }));
+
 test("a11y lists role, label, name, placeholder, type", () =>
   withPage(`<input role="searchbox" aria-label="Find" name="q" placeholder="Search…" type="search">`, ({ document, t }) => {
     assert.equal(t.a11y(document.querySelector("input")),

@@ -461,8 +461,8 @@
     catch { return false; }
   };
 
-  function getSelector(el) {
-    // Prefer stable test/aria/id attrs; each candidate must uniquely identify el.
+  // Stable test/aria/id attrs; null unless one uniquely identifies el.
+  function labelSelector(el) {
     // JSON.stringify on attr values handles the `\` and `"` escapes correctly for [attr="..."].
     const attr = (a, pre = "", v = el.getAttribute(a)) => v && `${pre}[${a}=${JSON.stringify(v)}]`;
     const aria = el.getAttribute("aria-label");
@@ -471,10 +471,21 @@
       /^[a-z][\w-]*$/i.test(el.id) && "#" + el.id,
       aria && aria.length < 80 && attr("aria-label", el.tagName.toLowerCase()),
     ]) if (sel && isUnique(sel, el)) return sel;
-    // Path cascade - short-circuit at the first depth that's already unique.
+    return null;
+  }
+
+  function getSelector(el) {
+    const own = labelSelector(el);
+    if (own) return own;
+    // Path cascade - short-circuit at the first depth that's already unique,
+    // or at the nearest ancestor a label identifies.
     const parts = [];
     let cur = el;
     while (cur && cur !== document.body && cur.nodeType === 1) {
+      if (cur !== el) {
+        const anchor = labelSelector(cur);
+        if (anchor && isUnique(anchor + " > " + parts.join(" > "), el)) return anchor + " > " + parts.join(" > ");
+      }
       let part = cur.tagName.toLowerCase();
       if (cur.classList && cur.classList.length) {
         const cls = Array.from(cur.classList)
@@ -486,7 +497,7 @@
       }
       if (cur.parentElement) {
         const sibs = Array.from(cur.parentElement.children).filter((s) => s.tagName === cur.tagName);
-        if (sibs.length > 1) part += `:nth-of-type(${sibs.indexOf(cur) + 1})`;
+        if (sibs.some((s) => s !== cur && s.matches(part))) part += `:nth-of-type(${sibs.indexOf(cur) + 1})`;
       }
       parts.unshift(part);
       const candidate = parts.join(" > ");
