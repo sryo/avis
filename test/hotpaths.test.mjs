@@ -108,6 +108,20 @@ test("add() keeps existing marker nodes and doesn't re-resolve their targets", (
       [[ids[0], "1", "fix #a"], [ids[1], "2", "fix #b"], [ids[2], "3", "fix #c"], [id4, "4", "fix #d"]]);
   }));
 
+test("add() and resolve() leave unchanged markers untouched", () =>
+  withPage(`<h1 id="a">A</h1><h2 id="b">B</h2><h3 id="c">C</h3><h4 id="d">D</h4>`, ({ window, document, avis }) => {
+    const ids = ["#a", "#b", "#c"].map((s) => avis.add(s, "fix " + s));
+    const layer = markerFor(document, ids[0]).parentNode;
+    const mo = new window.MutationObserver(() => {});
+    mo.observe(layer, { attributes: true, childList: true, characterData: true, subtree: true });
+    const id4 = avis.add("#d", "fix #d");
+    const touched = (recs) => new Set(recs.map((r) => (r.target === layer ? [...r.addedNodes, ...r.removedNodes] : [r.target.closest ? r.target.closest(".marker") : r.target.parentNode]).map((m) => m.dataset.annotationId)).flat());
+    assert.deepEqual([...touched(mo.takeRecords())], [id4], "add touches only the new marker");
+    avis.resolve(id4);
+    assert.deepEqual([...touched(mo.takeRecords())], [id4], "resolving the last one touches only it");
+    mo.disconnect();
+  }));
+
 test("render renumbers, reorders and restyles reused markers", () =>
   withPage(`<h1 id="a">A</h1><h2 id="b">B</h2><h3 id="c">C</h3>`, ({ document, avis }) => {
     const ids = ["#a", "#b", "#c"].map((s) => avis.add(s, "fix " + s));

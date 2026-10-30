@@ -1050,9 +1050,10 @@
 
   function render() {
     const total = state.annotations.length, n = total + (tentativeAnnotation ? 1 : 0);
-    copyCount.textContent = n ? String(n) : "";
+    const count = n ? String(n) : "", label = state.pointing ? "done" : "+ annotate";
+    if (copyCount.textContent !== count) copyCount.textContent = count;
     pointBtn.classList.toggle("active", state.pointing);
-    pointBtn.textContent = state.pointing ? "done" : "+ annotate";
+    if (pointBtn.textContent !== label) pointBtn.textContent = label;
     copyBtn.disabled = !total;
     renderMarkers(currentPageAnnotations());
   }
@@ -1064,18 +1065,24 @@
     const old = new Map();
     for (const m of markerLayer.children) old.set(m.dataset.annotationId, m);
     const stackByEl = new Map();
-    markerLayer.replaceChildren(...list.map((a, i) => {
-      const m = old.get(a.id) || document.createElement("div");
-      m.className = "marker";
-      if (a.source === "agent") m.classList.add("agent");
-      if (a === tentativeAnnotation || a.id === editingId) m.classList.add("tentative");
-      if (a.status === "working" || a.status === "acknowledged") m.classList.add(a.status);
-      m.textContent = String(i + 1);
-      m.title = a.comment;
-      m.tabIndex = 0;
-      m.setAttribute("role", "button");
-      m.setAttribute("aria-label", `annotation ${i + 1}: ${a.comment}`);
-      m.dataset.annotationId = a.id;
+    // Writes only what changed, so an add or resolve doesn't restyle every marker.
+    const set = (m, k, v) => { if (m[k] !== v) m[k] = v; };
+    const nodes = list.map((a, i) => {
+      let m = old.get(a.id);
+      if (!m) {
+        m = document.createElement("div");
+        m.tabIndex = 0;
+        m.setAttribute("role", "button");
+        m.dataset.annotationId = a.id;
+      }
+      set(m, "className", "marker" + (a.source === "agent" ? " agent" : "") +
+        (a === tentativeAnnotation || a.id === editingId ? " tentative" : "") +
+        (a.status === "working" || a.status === "acknowledged" ? " " + a.status : "") +
+        (dragState && dragState.id === a.id && dragState.moved ? " dragging" : ""));
+      set(m, "textContent", String(i + 1));
+      set(m, "title", a.comment);
+      const label = `annotation ${i + 1}: ${a.comment}`;
+      if (m.getAttribute("aria-label") !== label) m.setAttribute("aria-label", label);
       let target = m._targetEl;
       if (!target || !target.isConnected || m._elementPath !== a.elementPath || !target.matches(a.elementPath)) target = resolveTarget(a.elementPath);
       m._targetEl = target;
@@ -1089,12 +1096,14 @@
       const stackIdx = target ? (stackByEl.get(target) || 0) : 0;
       m._stackIndex = stackIdx;
       if (target) stackByEl.set(target, stackIdx + 1);
-      if (dragState && dragState.id === a.id) {
-        dragState.marker = m;
-        if (dragState.moved) m.classList.add("dragging");
-      }
+      if (dragState && dragState.id === a.id) dragState.marker = m;
       return m;
-    }));
+    });
+    const keep = new Set(nodes);
+    for (const m of old.values()) if (!keep.has(m)) m.remove();
+    const kids = markerLayer.children;
+    if (nodes.slice(0, kids.length).every((m, i) => kids[i] === m)) markerLayer.append(...nodes.slice(kids.length));
+    else markerLayer.replaceChildren(...nodes);
     positionMarkers();
   }
 
