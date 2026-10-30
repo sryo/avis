@@ -113,3 +113,20 @@ test("info() reports version, page and counts; VERSION is exposed", () =>
     before: (w) => w.localStorage.setItem("avis:annotations",
       JSON.stringify([{ id: "aold", comment: "elsewhere", url: "http://localhost:3000/b" }])),
   }));
+
+test("summary() drops nearbyText when parentContext.text already carries it; annotations keep it", () =>
+  withPage(({ avis }) => {
+    avis.add("#cta", "x");
+    const [s] = plain(avis.summary());
+    assert.equal("nearbyText" in s, false);
+    assert.equal(s.parentContext.text, "PlansStart free trial");
+    assert.equal(plain(avis.annotations)[0].nearbyText, "PlansStart free trial");
+  }));
+
+test("parentContext.text starts with nearbyText, so summary() loses nothing without it", () =>
+  withPage(({ avis }) => {
+    avis.add("#long b", "x");
+    const [a] = plain(avis.annotations);
+    assert.equal(a.nearbyText.length, 80);
+    assert.ok(a.parentContext.text.startsWith(a.nearbyText));
+  }, { html: `<p id="long"><b>x</b>${"word ".repeat(60)}</p>` }));

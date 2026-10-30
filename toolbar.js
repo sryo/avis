@@ -20,7 +20,7 @@
   const SUMMARY_FIELDS = [
     "id", "comment", "source", "replyTo",
     "sourceFile", "reactComponents",
-    "element", "elementPath", "text", "nearbyText",
+    "element", "elementPath", "text",
     "parentContext", "consoleLog", "priorClicks", "url",
     "styleTweaks",
   ];

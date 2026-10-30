@@ -4,7 +4,7 @@ Field names follow the [agentation v1.1 schema](https://www.agentation.com/schem
 
 ## `summary(opts)` projection
 
-Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `element`, `elementPath`, `text`, `nearbyText`, `parentContext`, `priorClicks`, `url`, `styleTweaks`, `consoleCount`, `status`.
+Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `element`, `elementPath`, `text`, `parentContext`, `priorClicks`, `url`, `styleTweaks`, `consoleCount`, `status`.
 
 - Fields that are null, `""` or `[]` are omitted, and so are empty fields inside `parentContext`.
 - `consoleCount` replaces `consoleLog` unless you pass `{console: true}`.
@@ -24,7 +24,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `element` | Tag name of the pinned element. |
 | `elementPath` | Unique CSS selector: `data-testid`, `data-test`, `id`, `aria-label`, then a class/nth-of-type path, anchored at `body >` when a short one isn't unique (`body` itself is `body`). |
 | `text` | Visible text of the element (120 chars max). |
-| `nearbyText` | Parent's text when it differs (80 chars max). |
+| `nearbyText` | Parent's text when it differs (80 chars max; full annotation only, since `parentContext.text` starts with it). |
 | `parentContext` | `{element, text, accessibility}` of the parent. The fallback when the pinned node is unlabeled. |
 | `accessibility` | `role`, `aria-label`, `name`, `placeholder`, `type` (full annotation only). |
 | `consoleLog` | Up to 20 `{level, ts, msg}` entries from `console.log/warn/error` in the 60s before the pin. Each argument is capped at 200 chars and 64 property reads. avis's own `[avis]` lines are excluded. On pages whose CSP blocks inline scripts, Chrome-family browsers capture nothing here and `sourceFile`/`reactComponents` stay empty. |
