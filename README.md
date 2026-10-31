@@ -7,10 +7,11 @@ Pairs with a browser MCP server. [perch](https://github.com/sryo/perch) (macOS) 
 ## Install
 
 ```bash
-git clone https://github.com/sryo/avis ~/.claude/skills/avis
+git clone https://github.com/sryo/avis ~/.agents/skills/avis
+mkdir -p ~/.claude/skills && ln -s ~/.agents/skills/avis ~/.claude/skills/avis
 ```
 
-That's Claude Code's skills folder. Codex and GitHub Copilot look in `~/.agents/skills`, so for those clone into `~/.agents/skills/avis` instead.
+One copy serves Codex, GitHub Copilot and Claude Code.
 
 Restart your agent if it doesn't show up.
 

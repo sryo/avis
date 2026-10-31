@@ -94,3 +94,14 @@ test("README has Install then Use", () => {
   const readme = read("README.md");
   assert.match(readme, /^## Install$[\s\S]*^## Use$/m);
 });
+
+// One copy in ~/.agents/skills (Codex, Copilot), linked into ~/.claude/skills, so
+// every agent runs the same files and one `git pull` updates them all.
+test("install clones once into ~/.agents/skills and links ~/.claude/skills to it", () => {
+  for (const f of ["README.md", "index.html"]) {
+    const doc = read(f);
+    assert.ok(doc.includes("git clone https://github.com/sryo/avis ~/.agents/skills/avis"), `${f} clones into ~/.agents/skills`);
+    assert.ok(doc.includes("ln -s ~/.agents/skills/avis ~/.claude/skills/avis"), `${f} links ~/.claude/skills`);
+    assert.ok(!doc.includes("clone into") && !doc.includes("Clone wherever"), `${f} has one install path`);
+  }
+});

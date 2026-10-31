@@ -216,9 +216,10 @@
 
     <section class="install">
       <h2>Install</h2>
-      <pre>git clone https://github.com/sryo/avis ~/.claude/skills/avis</pre>
+      <pre>git clone https://github.com/sryo/avis ~/.agents/skills/avis
+mkdir -p ~/.claude/skills &amp;&amp; ln -s ~/.agents/skills/avis ~/.claude/skills/avis</pre>
       <p>
-        Clone wherever your agent loads skills from. It pairs with a browser MCP server;
+        One copy serves Codex, GitHub Copilot and Claude Code. It pairs with a browser MCP server;
         <a href="https://github.com/sryo/perch">perch</a> is the reference backend on macOS.
       </p>
     </section>

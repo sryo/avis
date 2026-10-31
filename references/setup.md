@@ -24,7 +24,7 @@ perch reads `script_path` server-side and runs it, then `script`, in a single fu
 
 - **`tab_not_visible`**: the call needs the tab its window is showing. Ask the user to show the tab and retry, or call `activate_tab { target }`: it takes focus, so perch runs it only under the user's focus grant and otherwise answers `needs_focus` (the user allows it with `perch focus allow 15m`, or when perch asks). If the user switches away mid-review, the next call errors this way instead of hitting another tab.
 - **`stale_tab`**: the tab is gone. Re-run `list_tabs` and pick again.
-- **Unknown skill folder**: `<skill-dir>` is usually `~/.claude/skills/avis` (Claude Code) or `~/.agents/skills/avis` (Codex, Copilot). If `script_path` still errors, read the `toolbar.js` next to SKILL.md and pass its contents followed by `return __avis.info()` as `script`.
+- **Unknown skill folder**: `<skill-dir>` is usually `~/.agents/skills/avis`, linked from `~/.claude/skills/avis` for Claude Code. If `script_path` still errors, read the `toolbar.js` next to SKILL.md and pass its contents followed by `return __avis.info()` as `script`.
 - **Already mounted**: `toolbar.js` returns early when `window.__avis` exists, so re-running the call is safe and just reports `info()`.
 - **`mountedElsewhere: true`**: the page loaded `toolbar.js` itself (a plain `<script>`, like the avis site), so the toolbar lives in the page's JS world, not perch's. `__avis` here is a stub with only `info()` and `VERSION`; read annotations from the page's own `window.__avis` instead, or review a page that doesn't embed avis.
 - **`persistOK: false`**: `localStorage` writes are failing (quota, private mode). Annotations live until the page reloads.
