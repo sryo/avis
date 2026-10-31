@@ -11,8 +11,6 @@ git clone https://github.com/sryo/avis ~/.agents/skills/avis
 mkdir -p ~/.claude/skills && ln -sfn ~/.agents/skills/avis ~/.claude/skills/avis
 ```
 
-One copy serves Codex, GitHub Copilot and Claude Code.
-
 Restart your agent if it doesn't show up.
 
 avis needs an agent running on your Mac. Cloud agents can't reach your browser.
