@@ -1,7 +1,7 @@
-// scripts/bench.mjs --house: an A/B run in house's run format (house RULES.md K2),
-// one file per side, so `house price compare <base> <run>` judges the pair: each
+// scripts/bench.mjs --house: an A/B run in fium's run format (fium RULES.md K2),
+// one file per side, so `fium compare <base> <run>` judges the pair: each
 // op's per-rep timings as a time metric, its result bytes and toolbar.js's sizes
-// as bytes metrics. Reps of A and B ran back to back, so house pairs them.
+// as bytes metrics. Reps of A and B ran back to back, so fium pairs them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { houseSide, houseFiles } from "../scripts/bench.mjs";
@@ -47,7 +47,7 @@ test("a single run writes one file, from its p50s", () => {
   assert.deepEqual(files["bench/house-baseline.json"].metrics["mount ms"].samples, [2.2]);
 });
 
-// An A/A run's `house price compare --json` rows give bench/noise.json: per time
+// An A/A run's `fium compare --json` rows give bench/noise.json: per time
 // metric, how far the same code's median ratio ranged from 1, rounded up to a
 // percent, at least 10% (the A/A spread the old compare allowed), and an absolute 0.05ms below which no move counts (the
 // old compare's ABS_MS). Exact metrics carry no noise.
