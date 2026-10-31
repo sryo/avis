@@ -42,9 +42,9 @@ test("houseFiles names the base side next to the run", () => {
 // A run with no base (--no-base, --save-baseline) has its results flat: one file.
 test("a single run writes one file, from its p50s", () => {
   const one = { static: { "toolbar.js bytes": 98, "toolbar.js gzip": 39 }, results: { mount: { p50: 2.2, min: 2, p90: 2.4 } } };
-  const files = houseFiles(one, "bench/house-baseline.json");
-  assert.deepEqual(Object.keys(files), ["bench/house-baseline.json"]);
-  assert.deepEqual(files["bench/house-baseline.json"].metrics["mount ms"].samples, [2.2]);
+  const files = houseFiles(one, "bench/runs/one.json");
+  assert.deepEqual(Object.keys(files), ["bench/runs/one.json"]);
+  assert.deepEqual(files["bench/runs/one.json"].metrics["mount ms"].samples, [2.2]);
 });
 
 // An A/A run's `house price compare --json` rows give bench/noise.json: per time

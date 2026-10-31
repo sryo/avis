@@ -7,7 +7,6 @@
 //                          [--only "op|op"] [--out bench/runs/latest.json] [--chrome path]
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
-// Then `node scripts/compare.mjs` judges the run (exit 1 on a regression).
 // --house <out.json> also writes the run in house's format (house RULES.md K2): an A/B
 // run as <out.json> and its base side as <out>.base.json, judged with
 //   house price compare <out>.base.json <out.json> --noise bench/noise.json
@@ -240,7 +239,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeFileSync(resolve(ROOT, opts.noise), JSON.stringify(noiseFrom(rows), null, 2) + "\n");
     console.log(`noise → ${opts.noise}`);
   }
-  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}; judge with: node scripts/compare.mjs ${file}`);
+  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.house ? `; judge with: fium price compare ${Object.keys(houseFiles(out, opts.house)).join(" ")} --noise bench/noise.json` : ""));
   else for (const [op, v] of Object.entries(out.results)) {
     console.log(v.error ? `${op.padEnd(28)} ERROR ${v.error.split("\n")[0]}`
       : `${op.padEnd(28)} p50 ${String(v.p50).padStart(9)}ms  min ${String(v.min).padStart(9)}ms${v.bytes != null ? `  ${v.bytes}B` : ""}`);

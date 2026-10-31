@@ -28,7 +28,7 @@ Architecture and invariants for the avis skill.
 
 ## Bench
 
-`node scripts/bench.mjs --house bench/runs/house.json` runs `bench/suite.js` on the working tree's `toolbar.js` and on the base ref, reps interleaved in one headless Chrome (no focus taken). It writes both sides in fium's run format, and `fium price compare bench/runs/house.base.json bench/runs/house.json --noise bench/noise.json` judges the change (fium RULES.md K). `bench/noise.json` comes from an A/A run (`--base HEAD --noise bench/noise.json` on an unchanged `toolbar.js`), floored at the 10% spread this machine shows. `bench/house-baseline.json` is `bench/baseline.json` converted, with one sample per timing. `scripts/compare.mjs` stays until fium's verdicts match it: on the same runs fium is stricter, answering inconclusive where it said same or better.
+`node scripts/bench.mjs --house bench/runs/house.json` runs `bench/suite.js` on the working tree's `toolbar.js` and on the base ref, reps interleaved in one headless Chrome (no focus taken). It writes both sides in fium's run format, and `fium price compare bench/runs/house.base.json bench/runs/house.json --noise bench/noise.json` judges the change (fium RULES.md K). `bench/noise.json` comes from an A/A run (`--base HEAD --noise bench/noise.json` on an unchanged `toolbar.js`), floored at the 10% spread this machine shows.
 
 ## Rules for changes
 
