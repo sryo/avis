@@ -8,19 +8,22 @@
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
 // Then `node scripts/compare.mjs` judges the run (exit 1 on a regression).
+// --house <out.json> also writes the run in house's format (house RULES.md K2): an A/B
+// run as <out.json> and its base side as <out>.base.json, judged with
+//   house price compare <out>.base.json <out.json> --noise bench/noise.json
 
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function parseArgs(argv) {
-  const a = { reps: 15, src: "toolbar.js", base: undefined, out: null, only: null, chrome: null, saveBaseline: false };
+  const a = { reps: 15, src: "toolbar.js", base: undefined, out: null, only: null, chrome: null, saveBaseline: false, house: null, noise: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === "--reps") a.reps = +argv[++i];
@@ -31,6 +34,8 @@ export function parseArgs(argv) {
     else if (k === "--only") a.only = argv[++i].split("|").map((s) => s.trim());
     else if (k === "--chrome") a.chrome = argv[++i];
     else if (k === "--save-baseline") { a.saveBaseline = true; a.base = null; }
+    else if (k === "--house") a.house = argv[++i];
+    else if (k === "--noise") a.noise = argv[++i];
     else throw new Error("unknown arg " + k);
   }
   if (!Number.isInteger(a.reps) || a.reps < 1) throw new Error("--reps must be a positive integer");
@@ -136,6 +141,44 @@ export async function runSources(srcs, opts) {
   }
 }
 
+// One side ("base" or "run") of an A/B run, or a single run, in house's format:
+// toolbar.js's sizes and each op's result bytes as bytes, its per-rep timings as
+// time (a single run without them gives its p50). An op that errored is left out.
+export function houseSide(out, side) {
+  const metrics = {};
+  const stat = side ? out[side].static : out.static;
+  for (const [k, v] of Object.entries(stat)) metrics[k] = { dir: "lower", kind: "bytes", samples: [v] };
+  for (const [op, r] of Object.entries(out.results)) {
+    if (r.error) continue;
+    const v = side ? r[side] : r;
+    const ms = v.ms || [v.p50];
+    if (ms.some((x) => x > 0)) metrics[`${op} ms`] = { dir: "lower", kind: "time", samples: ms };
+    if (v.bytes != null) metrics[`${op} bytes`] = { dir: "lower", kind: "bytes", samples: [v.bytes] };
+  }
+  return { metrics, limits: {} };
+}
+
+// bench/noise.json from an A/A run's `house price compare --json` rows: per time
+// metric, the farthest its median-ratio range strayed from 1, rounded up to a
+// percent and at least REL (10%, the A/A spread on this machine), plus ABS_MS: a
+// move that small is never a change.
+export const REL = 0.10, ABS_MS = 0.05;
+export function noiseFrom(rows) {
+  const rel = {}, abs = {};
+  for (const r of rows) {
+    if (!r.range) continue;
+    rel[r.metric] = Math.max(REL, Math.ceil(Math.max(1 - r.range[0], r.range[1] - 1) * 100 - 1e-9) / 100);
+    abs[r.metric] = ABS_MS;
+  }
+  return { rel, abs };
+}
+
+// {path: run} for --house <file>: an A/B run's base side beside it as <file>.base.json.
+export function houseFiles(out, file) {
+  if (!out.base) return { [file]: houseSide(out, null) };
+  return { [file.replace(/\.json$/, "") + ".base.json"]: houseSide(out, "base"), [file]: houseSide(out, "run") };
+}
+
 function baselineRef() {
   try { return JSON.parse(readFileSync(join(ROOT, "bench/baseline.json"), "utf8")).rev; } catch { return "HEAD"; }
 }
@@ -148,7 +191,7 @@ export async function run(opts) {
   const runInfo = { rev: rev + (dirty ? "+dirty" : ""), static: staticOf(src) };
   if (opts.base === null) {
     const { browser, results } = await runSources([src], opts);
-    const flat = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.error ? v : (({ ms, ...rest }) => rest)(v[0])]));
+    const flat = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.error ? v : opts.house ? v[0] : (({ ms, ...rest }) => rest)(v[0])]));
     return { date: new Date().toISOString(), browser, reps: opts.reps, ...runInfo, results: flat };
   }
   const baseRef = opts.base || baselineRef();
@@ -177,6 +220,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
   console.log(`${out.browser} reps ${out.reps} → ${file}`);
+  if (opts.house) for (const [f, h] of Object.entries(houseFiles(out, opts.house))) {
+    const p = resolve(ROOT, f);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify(h, null, 2) + "\n");
+    console.log(`house run → ${f}`);
+  }
+  // --noise <file>: this run is an A/A (--base HEAD, toolbar.js unchanged); house's
+  // ranges for it become the noise every later compare allows.
+  if (opts.noise) {
+    if (!opts.house || !out.base) throw new Error("--noise needs an A/B run with --house");
+    const [baseFile, runFile] = Object.keys(houseFiles(out, opts.house)).map((f) => resolve(ROOT, f));
+    // house exits 1 or 3 when the A/A itself looks worse or inconclusive; its rows still say how far.
+    let json;
+    const cli = process.env.HOUSE || ["fium", "house"].map((n) => join(homedir(), "Documents/house", n)).find((f) => existsSync(f));
+    try { json = execFileSync(cli, ["price", "compare", baseFile, runFile, "--json"]).toString(); }
+    catch (e) { if (!e.stdout) throw e; json = e.stdout.toString(); }
+    const rows = JSON.parse(json);
+    writeFileSync(resolve(ROOT, opts.noise), JSON.stringify(noiseFrom(rows), null, 2) + "\n");
+    console.log(`noise → ${opts.noise}`);
+  }
   if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}; judge with: node scripts/compare.mjs ${file}`);
   else for (const [op, v] of Object.entries(out.results)) {
     console.log(v.error ? `${op.padEnd(28)} ERROR ${v.error.split("\n")[0]}`

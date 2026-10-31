@@ -1,0 +1,36 @@
+{
+  "rel": {
+    "mount ms": 0.1,
+    "reinject (no-op) ms": 0.1,
+    "getSelector x200 ms": 0.1,
+    "capture x50 ms": 0.1,
+    "add x100 (+render) ms": 0.1,
+    "summary() x20 @100 ms": 0.1,
+    "markWorking+unmark @100 ms": 0.1,
+    "resolve x100 one by one ms": 0.12,
+    "scroll reposition @100 ms": 0.1,
+    "scroll reposition @100 orphans ms": 0.1,
+    "discoverMatchedRules x20 ms": 0.1,
+    "open popup x10 ms": 0.1,
+    "hover x300 ms": 0.1,
+    "page mousedown x300 ms": 0.1,
+    "console.warn x2000 (obj) ms": 0.1
+  },
+  "abs": {
+    "mount ms": 0.05,
+    "reinject (no-op) ms": 0.05,
+    "getSelector x200 ms": 0.05,
+    "capture x50 ms": 0.05,
+    "add x100 (+render) ms": 0.05,
+    "summary() x20 @100 ms": 0.05,
+    "markWorking+unmark @100 ms": 0.05,
+    "resolve x100 one by one ms": 0.05,
+    "scroll reposition @100 ms": 0.05,
+    "scroll reposition @100 orphans ms": 0.05,
+    "discoverMatchedRules x20 ms": 0.05,
+    "open popup x10 ms": 0.05,
+    "hover x300 ms": 0.05,
+    "page mousedown x300 ms": 0.05,
+    "console.warn x2000 (obj) ms": 0.05
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "metrics": {
+    "toolbar.js bytes": {
+      "dir": "lower",
+      "kind": "bytes",
+      "samples": [
+        76263
+      ]
+    },
+    "toolbar.js gzip": {
+      "dir": "lower",
+      "kind": "bytes",
+      "samples": [
+        22880
+      ]
+    },
+    "mount ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        1.995
+      ]
+    },
+    "reinject (no-op) ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        0.665
+      ]
+    },
+    "getSelector x200 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        5.13
+      ]
+    },
+    "capture x50 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        23.04
+      ]
+    },
+    "add x100 (+render) ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        72.255
+      ]
+    },
+    "summary() x20 @100 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        1.375
+      ]
+    },
+    "summary() x20 @100 bytes": {
+      "dir": "lower",
+      "kind": "bytes",
+      "samples": [
+        53296
+      ]
+    },
+    "storage bytes @100 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        0
+      ]
+    },
+    "storage bytes @100 bytes": {
+      "dir": "lower",
+      "kind": "bytes",
+      "samples": [
+        147679
+      ]
+    },
+    "markWorking+unmark @100 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        1.12
+      ]
+    },
+    "resolve x100 one by one ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        28.04
+      ]
+    },
+    "scroll reposition @100 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        3.77
+      ]
+    },
+    "scroll reposition @100 orphans ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        6.825
+      ]
+    },
+    "discoverMatchedRules x20 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        22.665
+      ]
+    },
+    "open popup x10 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        33.235
+      ]
+    },
+    "hover x300 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        41.875
+      ]
+    },
+    "page mousedown x300 ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        0.975
+      ]
+    },
+    "console.warn x2000 (obj) ms": {
+      "dir": "lower",
+      "kind": "time",
+      "samples": [
+        6.285
+      ]
+    }
+  },
+  "limits": {}
+}

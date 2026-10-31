@@ -26,6 +26,10 @@ Architecture and invariants for the avis skill.
 
 `npm install && npm test`. `test/_mount.mjs` evaluates `toolbar.js` in a fresh happy-dom window per test. Setting `window.__AVIS_TEST__` before the script runs adds `window.__avis._t` with internal helpers; without the flag `_t` does not exist. The doc test fails if SKILL.md or `references/*.md` mention an `__avis.<name>` that the API lacks, name a perch tool that doesn't exist, or push SKILL.md past 5000 bytes.
 
+## Bench
+
+`node scripts/bench.mjs --house bench/runs/house.json` runs `bench/suite.js` on the working tree's `toolbar.js` and on the base ref, reps interleaved in one headless Chrome (no focus taken). It writes both sides in fium's run format, and `fium price compare bench/runs/house.base.json bench/runs/house.json --noise bench/noise.json` judges the change (fium RULES.md K). `bench/noise.json` comes from an A/A run (`--base HEAD --noise bench/noise.json` on an unchanged `toolbar.js`), floored at the 10% spread this machine shows. `bench/house-baseline.json` is `bench/baseline.json` converted, with one sample per timing. `scripts/compare.mjs` stays until fium's verdicts match it: on the same runs fium is stricter, answering inconclusive where it said same or better.
+
 ## Rules for changes
 
 - **Vanilla JS, single file, no build.** No `import`, JSX, or anything needing compilation. `toolbar.js` must stay a classic script ending in `})();` (a contract test checks both). Past ~200 LOC of new code, consider a separate skill.
