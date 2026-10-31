@@ -7,9 +7,9 @@
 //                          [--only "op|op"] [--out bench/runs/latest.json] [--chrome path]
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
-// --house <out.json> also writes the run in house's format (house RULES.md K2): an A/B
+// --house <out.json> also writes the run in fium's format (fium RULES.md K2): an A/B
 // run as <out.json> and its base side as <out>.base.json, judged with
-//   house price compare <out>.base.json <out.json> --noise bench/noise.json
+//   fium compare <out>.base.json <out.json> --noise bench/noise.json
 
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -140,7 +140,7 @@ export async function runSources(srcs, opts) {
   }
 }
 
-// One side ("base" or "run") of an A/B run, or a single run, in house's format:
+// One side ("base" or "run") of an A/B run, or a single run, in fium's format:
 // toolbar.js's sizes and each op's result bytes as bytes, its per-rep timings as
 // time (a single run without them gives its p50). An op that errored is left out.
 export function houseSide(out, side) {
@@ -157,7 +157,7 @@ export function houseSide(out, side) {
   return { metrics, limits: {} };
 }
 
-// bench/noise.json from an A/A run's `house price compare --json` rows: per time
+// bench/noise.json from an A/A run's `fium compare --json` rows: per time
 // metric, the farthest its median-ratio range strayed from 1, rounded up to a
 // percent and at least REL (10%, the A/A spread on this machine), plus ABS_MS: a
 // move that small is never a change.
@@ -223,17 +223,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const p = resolve(ROOT, f);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(h, null, 2) + "\n");
-    console.log(`house run → ${f}`);
+    console.log(`fium run → ${f}`);
   }
-  // --noise <file>: this run is an A/A (--base HEAD, toolbar.js unchanged); house's
+  // --noise <file>: this run is an A/A (--base HEAD, toolbar.js unchanged); fium's
   // ranges for it become the noise every later compare allows.
   if (opts.noise) {
     if (!opts.house || !out.base) throw new Error("--noise needs an A/B run with --house");
     const [baseFile, runFile] = Object.keys(houseFiles(out, opts.house)).map((f) => resolve(ROOT, f));
-    // house exits 1 or 3 when the A/A itself looks worse or inconclusive; its rows still say how far.
+    // fium exits 1 or 3 when the A/A itself looks worse or inconclusive; its rows still say how far.
     let json;
-    const cli = process.env.HOUSE || ["fium", "house"].map((n) => join(homedir(), "Documents/house", n)).find((f) => existsSync(f));
-    try { json = execFileSync(cli, ["price", "compare", baseFile, runFile, "--json"]).toString(); }
+    const cli = process.env.FIUM || join(homedir(), "Documents/fium/fium");
+    try { json = execFileSync(cli, ["compare", baseFile, runFile, "--json"]).toString(); }
     catch (e) { if (!e.stdout) throw e; json = e.stdout.toString(); }
     const rows = JSON.parse(json);
     writeFileSync(resolve(ROOT, opts.noise), JSON.stringify(noiseFrom(rows), null, 2) + "\n");
