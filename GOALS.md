@@ -22,6 +22,8 @@ You leave comments right on a page and your agent sees them in context, or the a
 | 3 | hover, scroll reposition, page mousedown, console.warn ms | `node scripts/bench.mjs` |
 | 4 | SKILL.md at most 5000 bytes | `test/doc.test.mjs` |
 
+Caps: `q3 k2 n2 b1 t1 toolbar.js*=2 summary*=2 mount*=2` (how firm each kind of number is: 3 never grows, 2 needs the owner's price, 1 may grow 10%, 0 only reported; fium RULES.md K6)
+
 ## Non-goals
 - Syncing comments between people or machines.
 - Being a design tool: style tweaks are a preview, not an editor.
