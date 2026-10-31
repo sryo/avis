@@ -239,7 +239,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeFileSync(resolve(ROOT, opts.noise), JSON.stringify(noiseFrom(rows), null, 2) + "\n");
     console.log(`noise → ${opts.noise}`);
   }
-  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.house ? `; judge with: fium price compare ${Object.keys(houseFiles(out, opts.house)).join(" ")} --noise bench/noise.json` : ""));
+  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.house ? `; judge with: fium compare ${Object.keys(houseFiles(out, opts.house)).join(" ")} --noise bench/noise.json` : ""));
   else for (const [op, v] of Object.entries(out.results)) {
     console.log(v.error ? `${op.padEnd(28)} ERROR ${v.error.split("\n")[0]}`
       : `${op.padEnd(28)} p50 ${String(v.p50).padStart(9)}ms  min ${String(v.min).padStart(9)}ms${v.bytes != null ? `  ${v.bytes}B` : ""}`);
