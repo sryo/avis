@@ -1,6 +1,6 @@
 # /avis
 
-`avis` is a skill that lets you leave comments directly on a page and have your agent see them in context. You can also flip it: ask the agent to annotate the page for you.
+avis lets you leave comments directly on a page and have your agent see them in context. You can also flip it: ask the agent to annotate the page for you.
 
 Pairs with a browser MCP server. [perch](https://github.com/sryo/perch) (macOS) is the reference backend.
 
@@ -12,6 +12,12 @@ git clone https://github.com/sryo/avis ~/.claude/skills/avis
 
 That's Claude Code's skills folder. Codex and GitHub Copilot look in `~/.agents/skills`, so for those clone into `~/.agents/skills/avis` instead.
 
-Start it with `/avis` (Claude Code, Copilot) or `$avis` (Codex). Restart your agent if it doesn't show up.
+Restart your agent if it doesn't show up.
 
 avis needs an agent running on your Mac. Cloud agents can't reach your browser.
+
+## Use
+
+With your page open, type `/avis` (Claude Code, Copilot) or `$avis` (Codex). Click `+ annotate`, point at what's wrong, and leave a comment. Type `done` when you're finished, and the agent fixes each one and clears it from the page.
+
+To flip it, ask for something like `/avis critique this design` or `/avis annotate how this flow works`.

@@ -18,7 +18,7 @@ Architecture and invariants for the avis skill.
 ├── index.html            # site; loads toolbar.js with a plain <script>
 ├── README.md             # public-facing intro + install
 ├── AGENTS.md             # this file
-├── CLAUDE.md             # pointer to AGENTS.md
+├── CLAUDE.md             # symlink to AGENTS.md
 └── LICENSE
 ```
 

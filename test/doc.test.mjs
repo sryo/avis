@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readlinkSync } from "node:fs";
 import { mount } from "./_mount.mjs";
 
 const root = new URL("../", import.meta.url);
@@ -84,4 +84,13 @@ test("frontmatter description stays short; it loads in every session", () => {
 
 test("SKILL.md marks schema.md as optional, so a normal pass doesn't read it", () => {
   assert.match(read("SKILL.md"), /only if a field is unclear: `references\/schema\.md`/);
+});
+
+test("CLAUDE.md is a symlink to AGENTS.md, so there is one copy to keep current", () => {
+  assert.equal(readlinkSync(new URL("CLAUDE.md", root)), "AGENTS.md");
+});
+
+test("README has Install then Use", () => {
+  const readme = read("README.md");
+  assert.match(readme, /^## Install$[\s\S]*^## Use$/m);
 });
