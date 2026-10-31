@@ -12,9 +12,9 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
 
 ## Steps
 
-1. **Pick the tab.** `list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If the row isn't `active`, call `activate_tab { target }` before mounting: `eval_js` only runs in the tab its window shows. If a call returns `stale_tab`, re-pick the tab.
+1. **Pick the tab.** `list_tabs { urlContains: "localhost", limit: 10 }` returns `{tabs, total}`. If `total` is 0, call it bare and look for `127.0.0.1` / `0.0.0.0` or the active tab. If the user named a URL, `navigate` (then use the `tabId` it returns). If the active tab is blank and you're in a code project, detect the dev server with `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(3000|3001|4173|4200|4321|5173|5174|8000|8080|8888)\b' | head -1` or `package.json` hints and navigate without asking. Otherwise ask. Tell the user in one line what you picked. Keep `target: {tabId}` from the row (or from `new_tab`/`navigate`) and pass it to every perch call below, so switching tabs mid-review doesn't redirect you. If the row isn't `active`, `eval_js` can't run there (only the tab its window shows): ask the user to show it, or `activate_tab { target }`, which needs their perch focus grant (`needs_focus`: ask them to allow it). If a call returns `stale_tab`, re-pick the tab.
 
-2. **Mount and verify in one call.** If any call returns `tab_not_visible`, `activate_tab { target }` and retry.
+2. **Mount and verify in one call.** If any call returns `tab_not_visible`, handle it as in step 1 and retry.
    ```
    eval_js { script_path: "<skill-dir>/toolbar.js", script: "return __avis.info()", target }
    ```

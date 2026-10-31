@@ -5,7 +5,7 @@
 | Need | perch tool |
 |---|---|
 | find the tab | `list_tabs` (always `{tabs, total}`; rows carry a stable `tabId`) |
-| bring a tab to the front (`tab_not_visible`) | `activate_tab` |
+| bring a tab to the front (`tab_not_visible`) | `activate_tab` (needs the user's perch focus grant) |
 | open or move a tab | `new_tab`, `navigate` |
 | mount, verify, read back, update status | `eval_js` |
 | page text or markup | `get_text` (`html: true` for markup) |
@@ -22,7 +22,7 @@ Pass the picked tab's `{ tabId }` (from its `list_tabs` row, `new_tab` or `navig
 
 perch reads `script_path` server-side and runs it, then `script`, in a single function body. The return value is stringified by perch; return objects directly.
 
-- **`tab_not_visible`**: the call needs the tab its window is showing. Call `activate_tab { target }` (it takes focus) and retry, or retry later. If the user switches away mid-review, the next call errors this way instead of hitting another tab.
+- **`tab_not_visible`**: the call needs the tab its window is showing. Ask the user to show the tab and retry, or call `activate_tab { target }`: it takes focus, so perch runs it only under the user's focus grant and otherwise answers `needs_focus` (the user allows it with `perch focus allow 15m`, or when perch asks). If the user switches away mid-review, the next call errors this way instead of hitting another tab.
 - **`stale_tab`**: the tab is gone. Re-run `list_tabs` and pick again.
 - **Unknown skill folder**: `<skill-dir>` is usually `~/.claude/skills/avis` (Claude Code) or `~/.agents/skills/avis` (Codex, Copilot). If `script_path` still errors, read the `toolbar.js` next to SKILL.md and pass its contents followed by `return __avis.info()` as `script`.
 - **Already mounted**: `toolbar.js` returns early when `window.__avis` exists, so re-running the call is safe and just reports `info()`.
