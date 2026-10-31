@@ -101,7 +101,8 @@ test("install clones once into ~/.agents/skills and links ~/.claude/skills to it
   for (const f of ["README.md", "index.html"]) {
     const doc = read(f);
     assert.ok(doc.includes("git clone https://github.com/sryo/avis ~/.agents/skills/avis"), `${f} clones into ~/.agents/skills`);
-    assert.ok(doc.includes("ln -s ~/.agents/skills/avis ~/.claude/skills/avis"), `${f} links ~/.claude/skills`);
+    // -fn replaces an existing ~/.claude/skills/avis link instead of linking inside it.
+    assert.ok(doc.includes("ln -sfn ~/.agents/skills/avis ~/.claude/skills/avis"), `${f} links ~/.claude/skills`);
     assert.ok(!doc.includes("clone into") && !doc.includes("Clone wherever"), `${f} has one install path`);
   }
 });
@@ -111,4 +112,22 @@ test("SKILL.md says when to pin your own comments, defaulting to not", () => {
   assert.match(skill, /Pin when/);
   assert.match(skill, /Don't pin/);
   assert.match(skill, /If in doubt, don't/);
+});
+
+// Only perch works as the backend: SKILL.md calls its tools by name.
+test("README and site say avis needs perch, not any browser MCP server", () => {
+  for (const f of ["README.md", "index.html"]) {
+    const doc = read(f);
+    assert.match(doc, /Needs\s.*perch.* \(macOS\); your agent offers to install it the first time\./s, f);
+    assert.doesNotMatch(doc, /browser MCP server|reference backend/, f);
+  }
+});
+
+// The toolbar's own done button only stops pointing; the agent hears "done" in chat.
+test("README says to type done in the chat with your agent", () => {
+  assert.match(read("README.md"), /Type `done` in the chat with your agent/);
+});
+
+test("AGENTS.md has a ## Test section with the test command", () => {
+  assert.match(read("AGENTS.md"), /^## Test\n\n`node --test test\/`/m);
 });

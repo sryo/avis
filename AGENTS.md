@@ -22,9 +22,9 @@ Architecture and invariants for the avis skill.
 └── LICENSE
 ```
 
-## Tests
+## Test
 
-`npm install && npm test`. `test/_mount.mjs` evaluates `toolbar.js` in a fresh happy-dom window per test. Setting `window.__AVIS_TEST__` before the script runs adds `window.__avis._t` with internal helpers; without the flag `_t` does not exist. The doc test fails if SKILL.md or `references/*.md` mention an `__avis.<name>` that the API lacks, name a perch tool that doesn't exist, or push SKILL.md past 5000 bytes.
+`node --test test/` (`npm install` first, for happy-dom). `test/_mount.mjs` evaluates `toolbar.js` in a fresh happy-dom window per test. Setting `window.__AVIS_TEST__` before the script runs adds `window.__avis._t` with internal helpers; without the flag `_t` does not exist. The doc test fails if SKILL.md or `references/*.md` mention an `__avis.<name>` that the API lacks, name a perch tool that doesn't exist, or push SKILL.md past 5000 bytes.
 
 ## Bench
 
