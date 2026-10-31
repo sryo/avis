@@ -105,3 +105,10 @@ test("install clones once into ~/.agents/skills and links ~/.claude/skills to it
     assert.ok(!doc.includes("clone into") && !doc.includes("Clone wherever"), `${f} has one install path`);
   }
 });
+
+test("SKILL.md says when to pin your own comments, defaulting to not", () => {
+  const skill = read("SKILL.md");
+  assert.match(skill, /Pin when/);
+  assert.match(skill, /Don't pin/);
+  assert.match(skill, /If in doubt, don't/);
+});

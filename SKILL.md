@@ -8,7 +8,7 @@ allowed-tools: mcp__perch__* Read Bash(lsof:*)
 
 A floating toolbar goes onto the user's open page. They click `+ annotate`, point at elements and leave comments. When they type "done" you read the annotations back, edit code, and resolve each one as you go.
 
-Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefix (`mcp__perch__list_tabs`). `<skill-dir>` is the folder holding this SKILL.md. Install, permissions and fallbacks: `references/setup.md`. Annotation fields, only if a field is unclear: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`.
+Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefix (`mcp__perch__list_tabs`). `<skill-dir>` is the folder holding this SKILL.md. Install, permissions and fallbacks: `references/setup.md`. Annotation fields, only if a field is unclear: `references/schema.md`. If the user asks *you* to annotate the page: `references/agent-annotates.md`. Pin when they asked, or a finding belongs on one element. Don't pin progress, fixes or what you'd say in chat. If in doubt, don't.
 
 ## Steps
 
@@ -18,15 +18,15 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
    ```
    eval_js { script_path: "<skill-dir>/toolbar.js", script: "return __avis.info()", target }
    ```
-   perch runs the file, then the script, in one body, so the toolbar source never enters your context. Re-injecting is a no-op. You get `{v, page, total, onPage, pending, working, persistOK}`. perch stringifies return values, so never wrap them in `JSON.stringify`. If `persistOK` is false, warn that annotations won't survive a reload. Existing annotations (`total > 0`) are pending work: leave them, and call `__avis.clear()` only if the user asks to start fresh.
+   perch runs the file, then the script, so the toolbar source never enters your context. Re-injecting is a no-op. You get `{v, page, total, onPage, pending, working, persistOK}`. perch stringifies return values, so never wrap them in `JSON.stringify`. If `persistOK` is false, warn that annotations won't survive a reload. Existing annotations (`total > 0`) are pending work: leave them, and call `__avis.clear()` only if the user asks to start fresh.
 
 3. **Hand off.** Say: *"Toolbar is on the page (bottom-right). Click `+ annotate`, point at elements, leave comments. Type 'done' here when you're finished."* Then stop and wait.
 
 4. **Read back** on "done": `eval_js { script: "return __avis.summary()" }`. Empty and null fields are omitted, so is a `pending` status, and console output is a `consoleCount`. Options: `summary({page: true})` for the current path only, `summary({status: "pending"})`, `summary({console: true})` for the log entries. Fetch `__avis.annotations` only when you need `computedStyles` or `outerHTML`. If nothing came back, say so and stop. Otherwise say how many came back and how you'll group them.
 
-5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute). Group related annotations.
+5. **Act.** Locate source in this order: `sourceFile` (open at the line) → `reactComponents` + grep → `text` + `element` grep → `parentContext.text` + `parentContext.element` → `elementPath`. If the first three are empty or generic, the user likely pinned an unlabeled wrapper; say so. `styleTweaks` is a literal CSS proposal: edit the rule named by `selector` in the file named by `source`, not an inline style (Tailwind: nearest utility class; `(inline)`: the `style` attribute).
 
-6. **Show your work, clean up as you go.** Status calls take one id or an array. An array does one write and one re-render and returns one result per id. Batch them, and move from one group to the next in a single call:
+6. **Show your work, clean up as you go.** Status calls take one id or an array (one write, one re-render, one result per id). Batch them, and move from one group to the next in a single call:
    ```
    return __avis.markWorking(["a1", "a2"])
    return [__avis.resolve(["a1", "a2"]), __avis.markWorking(["a3"])]
@@ -35,7 +35,7 @@ Needs [perch](https://github.com/sryo/perch); its tools may carry a client prefi
    - `__avis.dismiss(ids, reason)` for false positives or won't-fix; report the reasons.
    - Skipped one (couldn't locate, ambiguous)? `__avis.unmarkWorking(ids)` and tell the user which and why.
    - `__avis.clear()` ends a fast full pass instead of per-id resolves.
-   - Never leave addressed annotations on the page. A stale marker is a bug.
+   - Never leave addressed annotations on the page.
 
 ## API
 
