@@ -157,20 +157,9 @@ export function houseSide(out, side) {
   return { metrics, limits: {} };
 }
 
-// bench/noise.json from an A/A run's `fium compare --json` rows: per time
-// metric, the farthest its median-ratio range strayed from 1, rounded up to a
-// percent and at least REL (10%, the A/A spread on this machine), plus ABS_MS: a
-// move that small is never a change.
-export const REL = 0.10, ABS_MS = 0.05;
-export function noiseFrom(rows) {
-  const rel = {}, abs = {};
-  for (const r of rows) {
-    if (!r.range) continue;
-    rel[r.metric] = Math.max(REL, Math.ceil(Math.max(1 - r.range[0], r.range[1] - 1) * 100 - 1e-9) / 100);
-    abs[r.metric] = ABS_MS;
-  }
-  return { rel, abs };
-}
+// `fium noise <base> <run>` writes bench/noise.json from an A/A run (fium RULES.md K2); a
+// move under 0.05ms is never a change.
+export const NOISE_ARGS = ["--abs", "*=0.05"];
 
 // {path: run} for --house <file>: an A/B run's base side beside it as <file>.base.json.
 export function houseFiles(out, file) {
@@ -230,13 +219,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (opts.noise) {
     if (!opts.house || !out.base) throw new Error("--noise needs an A/B run with --house");
     const [baseFile, runFile] = Object.keys(houseFiles(out, opts.house)).map((f) => resolve(ROOT, f));
-    // fium exits 1 or 3 when the A/A itself looks worse or inconclusive; its rows still say how far.
-    let json;
     const cli = process.env.FIUM || join(homedir(), "Documents/fium/fium");
-    try { json = execFileSync(cli, ["compare", baseFile, runFile, "--json"]).toString(); }
-    catch (e) { if (!e.stdout) throw e; json = e.stdout.toString(); }
-    const rows = JSON.parse(json);
-    writeFileSync(resolve(ROOT, opts.noise), JSON.stringify(noiseFrom(rows), null, 2) + "\n");
+    writeFileSync(resolve(ROOT, opts.noise), execFileSync(cli, ["noise", baseFile, runFile, ...NOISE_ARGS]));
     console.log(`noise → ${opts.noise}`);
   }
   if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.house ? `; judge with: fium compare ${Object.keys(houseFiles(out, opts.house)).join(" ")} --noise bench/noise.json` : ""));

@@ -47,20 +47,6 @@ test("a single run writes one file, from its p50s", () => {
   assert.deepEqual(files["bench/runs/one.json"].metrics["mount ms"].samples, [2.2]);
 });
 
-// An A/A run's `fium compare --json` rows give bench/noise.json: per time
-// metric, how far the same code's median ratio ranged from 1, rounded up to a
-// percent, at least 10% (the A/A spread the old compare allowed), and an absolute 0.05ms below which no move counts (the
-// old compare's ABS_MS). Exact metrics carry no noise.
-import { noiseFrom } from "../scripts/bench.mjs";
-test("noiseFrom keeps each time metric's A/A spread", () => {
-  assert.deepEqual(noiseFrom([
-    { metric: "mount ms", range: [0.93, 1.061], verdict: "same" },
-    { metric: "summary() x20 @100 ms", range: [0.99, 1.01], verdict: "same" },
-    { metric: "toolbar.js bytes", verdict: "same" },
-    { metric: "markWorking ms", range: [0.879, 1.0887], verdict: "inconclusive" },
-  ]), { rel: { "mount ms": 0.1, "summary() x20 @100 ms": 0.1, "markWorking ms": 0.13 }, abs: { "mount ms": 0.05, "summary() x20 @100 ms": 0.05, "markWorking ms": 0.05 } });
-});
-
 test("an op that measures only bytes (0ms every rep) has no time metric", () => {
   const out = { static: {}, results: { "storage bytes @100": { p50: 0, bytes: 9, ms: [0, 0] } } };
   assert.deepEqual(Object.keys(houseSide(out, null).metrics), ["storage bytes @100 bytes"]);
