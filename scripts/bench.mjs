@@ -4,7 +4,7 @@
 // ref in bench/baseline.json), reps interleaved in one browser so machine noise hits
 // both alike. Absolute numbers swing ±50% between runs on a busy Mac; the ratio doesn't.
 //   node scripts/bench.mjs [--base <ref>|--no-base] [--reps 15] [--src toolbar.js]
-//                          [--only "op|op"] [--out bench/runs/latest.json] [--chrome path]
+//                          [--only "op|op"] [--out ~/.fium/runs/avis/latest.json] [--chrome path]
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
 // --house <out.json> also writes the run in fium's format (fium RULES.md K2): an A/B
@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { tmpdir, homedir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -167,6 +167,14 @@ export function houseFiles(out, file) {
   return { [file.replace(/\.json$/, "") + ".base.json"]: houseSide(out, "base"), [file]: houseSide(out, "run") };
 }
 
+// ${FIUM_HOME:-~/.fium}/runs/<repo>/ (fium RULES.md K2), named after the main checkout so a worktree's runs land with its repo's.
+export function runsDir() {
+  const common = git("rev-parse", "--path-format=absolute", "--git-common-dir").trim();
+  return join(process.env.FIUM_HOME || join(homedir(), ".fium"), "runs", basename(dirname(common)));
+}
+
+export const outFile = (out) => (out ? resolve(ROOT, out) : join(runsDir(), "latest.json"));
+
 function baselineRef() {
   try { return JSON.parse(readFileSync(join(ROOT, "bench/baseline.json"), "utf8")).rev; } catch { return "HEAD"; }
 }
@@ -204,7 +212,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const opts = parseArgs(process.argv.slice(2));
   const out = await run(opts);
   const file = opts.saveBaseline ? join(ROOT, "bench/baseline.json")
-    : resolve(ROOT, opts.out || "bench/runs/latest.json");
+    : outFile(opts.out);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
   console.log(`${out.browser} reps ${out.reps} → ${file}`);

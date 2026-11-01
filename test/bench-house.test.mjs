@@ -4,7 +4,15 @@
 // as bytes metrics. Reps of A and B ran back to back, so fium pairs them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { houseSide, houseFiles } from "../scripts/bench.mjs";
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { houseSide, houseFiles, outFile } from "../scripts/bench.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const common = execFileSync("git", ["-C", ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir"]).toString().trim();
+const RUNS = join(process.env.FIUM_HOME || join(homedir(), ".fium"), "runs", basename(dirname(common)));
 
 const ab = {
   base: { rev: "a", static: { "toolbar.js bytes": 100, "toolbar.js gzip": 40 } },
@@ -34,20 +42,33 @@ test("an op that errored is left out of both sides, so house reports it missing 
 });
 
 test("houseFiles names the base side next to the run", () => {
-  const files = houseFiles(ab, "bench/runs/house.json");
-  assert.deepEqual(Object.keys(files), ["bench/runs/house.base.json", "bench/runs/house.json"]);
-  assert.deepEqual(files["bench/runs/house.base.json"].metrics["toolbar.js bytes"].samples, [100]);
+  const files = houseFiles(ab, join(RUNS, "house.json"));
+  assert.deepEqual(Object.keys(files), [join(RUNS, "house.base.json"), join(RUNS, "house.json")]);
+  assert.deepEqual(files[join(RUNS, "house.base.json")].metrics["toolbar.js bytes"].samples, [100]);
 });
 
 // A run with no base (--no-base, --save-baseline) has its results flat: one file.
 test("a single run writes one file, from its p50s", () => {
   const one = { static: { "toolbar.js bytes": 98, "toolbar.js gzip": 39 }, results: { mount: { p50: 2.2, min: 2, p90: 2.4 } } };
-  const files = houseFiles(one, "bench/runs/one.json");
-  assert.deepEqual(Object.keys(files), ["bench/runs/one.json"]);
-  assert.deepEqual(files["bench/runs/one.json"].metrics["mount ms"].samples, [2.2]);
+  const files = houseFiles(one, join(RUNS, "one.json"));
+  assert.deepEqual(Object.keys(files), [join(RUNS, "one.json")]);
+  assert.deepEqual(files[join(RUNS, "one.json")].metrics["mount ms"].samples, [2.2]);
 });
 
 test("an op that measures only bytes (0ms every rep) has no time metric", () => {
   const out = { static: {}, results: { "storage bytes @100": { p50: 0, bytes: 9, ms: [0, 0] } } };
   assert.deepEqual(Object.keys(houseSide(out, null).metrics), ["storage bytes @100 bytes"]);
+});
+
+// fium RULES.md K2: runs live outside the repo, in ${FIUM_HOME:-~/.fium}/runs/<repo>/.
+test("the run goes to the fium runs folder unless --out names a file", () => {
+  assert.equal(outFile(null), join(RUNS, "latest.json"));
+  assert.equal(outFile("x/y.json"), resolve(ROOT, "x/y.json"));
+});
+
+test("FIUM_HOME moves the runs folder", () => {
+  const was = process.env.FIUM_HOME;
+  process.env.FIUM_HOME = "/tmp/fium-home";
+  try { assert.equal(outFile(null), join("/tmp/fium-home/runs", basename(RUNS), "latest.json")); }
+  finally { if (was === undefined) delete process.env.FIUM_HOME; else process.env.FIUM_HOME = was; }
 });
