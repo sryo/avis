@@ -174,10 +174,78 @@
       return toResult(a);
     }, () => { persist(); render(); });
   }
+  // An elementPath crosses into an open shadow root or a same-origin frame with ` >>> `:
+  // the part before it names the host (or <iframe>), the part after is scoped to its inner tree.
+  const PIERCE = " >>> ";
+  function splitPath(path) {
+    const parts = [];
+    let quote = null, start = 0;
+    for (let i = 0; i < path.length; i++) {
+      const c = path[i];
+      if (c === "\\") i++;
+      else if (quote) { if (c === quote) quote = null; }
+      else if (c === '"' || c === "'") quote = c;
+      else if (path.startsWith(PIERCE, i)) { parts.push(path.slice(start, i)); start = i + PIERCE.length; i = start - 1; }
+    }
+    parts.push(path.slice(start));
+    return parts;
+  }
+  const frameDoc = (el) => {
+    if (el.localName !== "iframe" && el.localName !== "frame") return null;
+    try { return el.contentDocument; } catch { return null; }
+  };
+  const innerRoot = (el) => el.shadowRoot || frameDoc(el);
+  const frameOf = (doc) => {
+    if (doc === document) return null;
+    try { return doc.defaultView && doc.defaultView.frameElement; } catch { return null; }
+  };
+  // The element whose inner tree is root (shadow host or <iframe>); null at the top document.
+  const outerHost = (root) => root.host || frameOf(root);
+  const parentOf = (el) => el.parentElement || (el.parentNode && el.parentNode.host) || null;
+  const viewOf = (el) => el.ownerDocument.defaultView || window;
   const resolveTarget = (path) => {
     if (!path) return null;
-    try { return document.querySelector(path); } catch { return null; }
+    const parts = splitPath(path);
+    let root = document, el = null;
+    for (let i = 0; i < parts.length; i++) {
+      if (i && !(root = innerRoot(el))) return null;
+      try { el = root.querySelector(parts[i]); } catch { return null; }
+      if (!el) return null;
+    }
+    return el;
   };
+  // Cheap staleness check for a cached target: its innermost part still matches.
+  const matchesPath = (el, path) => {
+    const parts = splitPath(path);
+    try { return el.matches(parts[parts.length - 1]); } catch { return false; }
+  };
+  // A frame's content-box origin and scale in its own document's viewport.
+  function frameBox(frame) {
+    const r = frame.getBoundingClientRect();
+    const s = frame.offsetWidth ? r.width / frame.offsetWidth : 1;
+    const cs = viewOf(frame).getComputedStyle(frame);
+    return {
+      x: r.left + (frame.clientLeft + (parseFloat(cs.paddingLeft) || 0)) * s,
+      y: r.top + (frame.clientTop + (parseFloat(cs.paddingTop) || 0)) * s,
+      s,
+    };
+  }
+  // getBoundingClientRect in the top viewport, through any frames el sits in.
+  function viewRect(el) {
+    let { left, top, width, height } = el.getBoundingClientRect();
+    for (let f = frameOf(el.ownerDocument); f; f = frameOf(f.ownerDocument)) {
+      const b = frameBox(f);
+      left = b.x + left * b.s; top = b.y + top * b.s; width *= b.s; height *= b.s;
+    }
+    return { left, top, width, height, right: left + width, bottom: top + height };
+  }
+  // Scroll inside a frame doesn't reach the top document's capture listener.
+  const watchedDocs = new WeakSet();
+  function watchDoc(doc) {
+    if (doc === document || watchedDocs.has(doc)) return;
+    watchedDocs.add(doc);
+    doc.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
+  }
 
   // Consecutive identical entries become the first one plus a count `n`.
   function collapseRepeats(log) {
@@ -420,7 +488,7 @@
     }
     document.addEventListener("avis:react", (e) => {
       let info = null;
-      try { info = getReactInfo(e.target); } catch {}
+      try { info = getReactInfo(e.composedPath()[0] || e.target); } catch {}
       document.dispatchEvent(new CustomEvent("avis:react-result", { detail: JSON.stringify(info) }));
     });
     document.addEventListener("avis:ping", () => document.dispatchEvent(new CustomEvent("avis:pong")));
@@ -470,12 +538,12 @@
   function reactInfo(el) {
     if (!bridged) return getReactInfo(el);
     reactReply = null;
-    el.dispatchEvent(new CustomEvent("avis:react", { bubbles: true }));
+    el.dispatchEvent(new CustomEvent("avis:react", { bubbles: true, composed: true }));
     try { return reactReply ? JSON.parse(reactReply) : null; } catch { return null; }
   }
 
-  const isUnique = (sel, el) => {
-    try { return document.querySelector(sel) === el && document.querySelectorAll(sel).length === 1; }
+  const isUnique = (sel, el, root = el.getRootNode()) => {
+    try { return root.querySelector(sel) === el && root.querySelectorAll(sel).length === 1; }
     catch { return false; }
   };
 
@@ -493,13 +561,20 @@
   }
 
   function getSelector(el) {
+    const outer = outerHost(el.getRootNode());
+    return outer ? getSelector(outer) + PIERCE + localSelector(el) : localSelector(el);
+  }
+
+  // Unique within el's own tree (document, shadow root or frame document).
+  function localSelector(el) {
     const own = labelSelector(el);
     if (own) return own;
     // Path cascade - short-circuit at the first depth that's already unique,
     // or at the nearest ancestor a label identifies.
     const parts = [];
+    const body = el.getRootNode().body;
     let cur = el;
-    while (cur && cur !== document.body && cur.nodeType === 1) {
+    while (cur && cur !== body && cur.nodeType === 1) {
       if (cur !== el) {
         const anchor = labelSelector(cur);
         if (anchor && isUnique(anchor + " > " + parts.join(" > "), el)) return anchor + " > " + parts.join(" > ");
@@ -513,8 +588,9 @@
           .join(".");
         if (cls) part += "." + cls;
       }
-      if (cur.parentElement) {
-        const sibs = Array.from(cur.parentElement.children).filter((s) => s.tagName === cur.tagName);
+      // parentNode: a shadow root's top-level children have no parentElement.
+      if (cur.parentNode) {
+        const sibs = Array.from(cur.parentNode.children).filter((s) => s.tagName === cur.tagName);
         if (sibs.some((s) => s !== cur && s.matches(part))) part += `:nth-of-type(${sibs.indexOf(cur) + 1})`;
       }
       parts.unshift(part);
@@ -532,7 +608,8 @@
   }
 
   function nearbyText(el) {
-    const pt = el.parentElement ? visibleText(el.parentElement, 200) : "";
+    const parent = parentOf(el);
+    const pt = parent ? visibleText(parent, 200) : "";
     return pt && pt !== visibleText(el, 200) ? pt.slice(0, 80) : "";
   }
 
@@ -559,7 +636,7 @@
   ];
 
   function serializeComputedStyles(el) {
-    const cs = window.getComputedStyle(el);
+    const cs = viewOf(el).getComputedStyle(el);
     return RICH_STYLE_PROPS
       .map((p) => [p, cs.getPropertyValue(p)])
       .filter(([, v]) => v && v !== "none" && v !== "normal")
@@ -569,7 +646,7 @@
 
   const newId = () => "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   function capture(el, comment, opts = {}) {
-    const r = el.getBoundingClientRect();
+    const r = viewRect(el);
     const react = reactInfo(el);
     const viewport = { width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), scrollX: Math.round(scrollX) };
     const client = {
@@ -579,7 +656,7 @@
       colorScheme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
     };
     const boundingBox = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
-    const parent = el.parentElement;
+    const parent = parentOf(el);
     const parentContext = parent ? {
       element: parent.tagName.toLowerCase(),
       text: visibleText(parent, 80),
@@ -618,7 +695,7 @@
 
   // Just enough for renderMarkers to place the in-progress marker; capture() runs on commit.
   function placeholderAnnotation(el, selector) {
-    const r = el.getBoundingClientRect();
+    const r = viewRect(el);
     return {
       id: "tentative",
       comment: "",
@@ -1102,7 +1179,8 @@
       const label = `annotation ${i + 1}: ${a.comment}`;
       if (m.getAttribute("aria-label") !== label) m.setAttribute("aria-label", label);
       let target = m._targetEl;
-      if (!target || !target.isConnected || m._elementPath !== a.elementPath || !target.matches(a.elementPath)) target = resolveTarget(a.elementPath);
+      if (!target || !target.isConnected || m._elementPath !== a.elementPath || !matchesPath(target, a.elementPath)) target = resolveTarget(a.elementPath);
+      if (target) watchDoc(target.ownerDocument);
       m._targetEl = target;
       m._elementPath = a.elementPath || null;
       const bb = a.boundingBox;
@@ -1141,7 +1219,7 @@
           m._targetEl = resolveTarget(m._elementPath);
         }
         const el = m._targetEl;
-        const r = el && el.getBoundingClientRect();
+        const r = el && viewRect(el);
         // Gone or hidden: the capture-time spot, read before any write.
         reads.push(r && (r.width > 0 || r.height > 0) ? { x: r.right - 11, y: r.top - 11 }
           : m._orphanAbsX === undefined ? null : { x: m._orphanAbsX - scrollX, y: m._orphanAbsY - scrollY });
@@ -1161,7 +1239,24 @@
   function elementBeneathPoint(x, y) {
     const els = document.elementsFromPoint(x, y);
     if (els[0] === host && shadow.elementsFromPoint(x, y)[0] !== overlay) return host;
-    return els.find((el) => el !== host) || null;
+    let el = els.find((e) => e !== host) || null;
+    // Descend through open shadow roots and same-origin frames, mapping the point into each frame.
+    for (let depth = 0; el && depth < 32; depth++) {
+      const doc = frameDoc(el);
+      let next = null;
+      if (doc) {
+        const b = frameBox(el);
+        x = (x - b.x) / b.s; y = (y - b.y) / b.s;
+        next = doc.elementFromPoint && doc.elementFromPoint(x, y);
+      } else if (el.shadowRoot && el.shadowRoot.elementsFromPoint) {
+        // The root's own hits only: the list also retargets in avis's host and the page around el.
+        const root = el.shadowRoot;
+        next = root.elementsFromPoint(x, y).find((e) => e.getRootNode() === root);
+      }
+      if (!next || next === el) break;
+      el = next;
+    }
+    return el;
   }
 
   function enterPointMode() {
@@ -1223,7 +1318,7 @@
   }
 
   const showBox = (o, el) => {
-    const r = el.getBoundingClientRect();
+    const r = viewRect(el);
     Object.assign(o.style, { display: "block", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
   };
 
@@ -1296,7 +1391,8 @@
         const { rules, unreadable } = discoverMatchedRules(targetEl);
         if (rules.length) {
           previewSheet = createPreviewSheet();
-          previewSheet.attach(selector || getSelector(targetEl));
+          const parts = splitPath(selector || getSelector(targetEl));
+          previewSheet.attach(parts[parts.length - 1], targetEl.getRootNode());
 
           const chev = h("span", "popup-tweaks-chevron");
           const toggle = h("button", "popup-tweaks-toggle", { type: "button" }, chev,
@@ -1478,9 +1574,11 @@
       try { list = rule.type === 3 ? rule.styleSheet?.cssRules : rule.cssRules; } catch { unreadable++; }
       if (list) for (const r of list) walk(r, sel);
       const q = rule.media?.mediaText;
-      if (rules.length > mark && (rule.type === 12 ? !CSS.supports(rule.conditionText) : q && !matchMedia(q).matches)) rules.length = mark;
+      if (rules.length > mark && (rule.type === 12 ? !CSS.supports(rule.conditionText) : q && !viewOf(el).matchMedia(q).matches)) rules.length = mark;
     }
-    for (const sheet of [...document.styleSheets, ...(document.adoptedStyleSheets || [])]) {
+    // A shadow root or frame document carries its own sheets.
+    const root = el.getRootNode();
+    for (const sheet of [...(root.styleSheets || []), ...(root.adoptedStyleSheets || [])]) {
       if (!ownSheets.has(sheet.ownerNode || sheet)) walk(sheet);
     }
     if (el.style.length) rules.push({ rule: { style: el.style, _inline: true }, selectorText: "(inline)" });
@@ -1605,6 +1703,7 @@
     const tweaks = new Map(); // property → formatted value
     let selector = null;
     let sheet = null; // CSSStyleSheet, or the <style> fallback
+    let scope = document; // the document or shadow root the sheet joins
     function flush() {
       if (!selector || !sheet) return;
       const body = [...tweaks].map(([p, v]) => `${p}: ${v} !important;`).join(" ");
@@ -1613,14 +1712,16 @@
       else sheet.textContent = css;
     }
     return {
-      attach(sel) {
+      attach(sel, root = document) {
         selector = sel;
         if (!sheet) {
+          scope = root;
+          // A frame document rejects a sheet constructed in this one: that falls back to <style>.
           try {
             sheet = new CSSStyleSheet();
-            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+            root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
           } catch {
-            document.head.appendChild(sheet = document.createElement("style"));
+            (root.head || root).appendChild(sheet = (root.ownerDocument || root).createElement("style"));
           }
           ownSheets.add(sheet);
         }
@@ -1630,7 +1731,7 @@
       clear(prop) { tweaks.delete(prop); flush(); },
       detach() {
         if (sheet && sheet.remove) sheet.remove();
-        else if (sheet) document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet);
+        else if (sheet) scope.adoptedStyleSheets = scope.adoptedStyleSheets.filter((s) => s !== sheet);
         sheet = selector = null;
         tweaks.clear();
       },
@@ -2019,7 +2120,7 @@
   if (window.__AVIS_TEST__) {
     api._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
-      getSelector, a11y, nearbyText, getReactInfo, discoverMatchedRules, ruleSourceLabel, readDeclarations, capture,
+      getSelector, resolveTarget, viewRect, a11y, nearbyText, getReactInfo, discoverMatchedRules, ruleSourceLabel, readDeclarations, capture,
       serializeConsoleArg, bridged,
     };
   }

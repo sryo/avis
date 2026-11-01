@@ -24,7 +24,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `sourceFile` | `"path:line"` from React `_debugSource`. React dev builds only; production strips it. |
 | `reactComponents` | `"<App> <Layout> <NavItem>"`, any React build. Minified and wrapper names are skipped. |
 | `element` | Tag name of the pinned element. |
-| `elementPath` | Unique CSS selector: `data-testid`, `data-test`, `id`, `aria-label`, then a class/nth-of-type path (nth-of-type only where classes don't tell siblings apart), anchored at the nearest ancestor one of those labels identifies, or at `body >` when a short one isn't unique (`body` itself is `body`). |
+| `elementPath` | Unique CSS selector: `data-testid`, `data-test`, `id`, `aria-label`, then a class/nth-of-type path (nth-of-type only where classes don't tell siblings apart), anchored at the nearest ancestor one of those labels identifies, or at `body >` when a short one isn't unique (`body` itself is `body`). ` >>> ` steps into an open shadow root or a same-origin iframe: `#card >>> button.buy` is `button.buy` inside `#card`'s shadow root (or document, for an `<iframe>`). Grep for the last part, in the component the earlier part names. |
 | `text` | Visible text of the element (120 chars max). |
 | `nearbyText` | Parent's text when it differs (80 chars max; full annotation only, since `parentContext.text` starts with it). |
 | `parentContext` | `{element, text, accessibility}` of the parent. The fallback when the pinned node is unlabeled. |
