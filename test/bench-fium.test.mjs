@@ -1,4 +1,4 @@
-// scripts/bench.mjs --house: an A/B run in fium's run format (fium RULES.md K2),
+// scripts/bench.mjs --fium: an A/B run in fium's run format (fium RULES.md K2),
 // one file per side, so `fium compare <base> <run>` judges the pair: each
 // op's per-rep timings as a time metric, its result bytes and toolbar.js's sizes
 // as bytes metrics. Reps of A and B ran back to back, so fium pairs them.
@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { houseSide, houseFiles, outFile } from "../scripts/bench.mjs";
+import { fiumSide, fiumFiles, outFile } from "../scripts/bench.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const common = execFileSync("git", ["-C", ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir"]).toString().trim();
@@ -24,8 +24,8 @@ const ab = {
   },
 };
 
-test("houseSide turns one side of an A/B run into house metrics", () => {
-  assert.deepEqual(houseSide(ab, "run"), {
+test("fiumSide turns one side of an A/B run into fium metrics", () => {
+  assert.deepEqual(fiumSide(ab, "run"), {
     metrics: {
       "toolbar.js bytes": { dir: "lower", kind: "bytes", samples: [98] },
       "toolbar.js gzip": { dir: "lower", kind: "bytes", samples: [39] },
@@ -37,27 +37,27 @@ test("houseSide turns one side of an A/B run into house metrics", () => {
   });
 });
 
-test("an op that errored is left out of both sides, so house reports it missing from neither", () => {
-  for (const side of ["base", "run"]) assert.equal(houseSide(ab, side).metrics["broken ms"], undefined);
+test("an op that errored is left out of both sides, so fium reports it missing from neither", () => {
+  for (const side of ["base", "run"]) assert.equal(fiumSide(ab, side).metrics["broken ms"], undefined);
 });
 
-test("houseFiles names the base side next to the run", () => {
-  const files = houseFiles(ab, join(RUNS, "house.json"));
-  assert.deepEqual(Object.keys(files), [join(RUNS, "house.base.json"), join(RUNS, "house.json")]);
-  assert.deepEqual(files[join(RUNS, "house.base.json")].metrics["toolbar.js bytes"].samples, [100]);
+test("fiumFiles names the base side next to the run", () => {
+  const files = fiumFiles(ab, join(RUNS, "fium.json"));
+  assert.deepEqual(Object.keys(files), [join(RUNS, "fium.base.json"), join(RUNS, "fium.json")]);
+  assert.deepEqual(files[join(RUNS, "fium.base.json")].metrics["toolbar.js bytes"].samples, [100]);
 });
 
 // A run with no base (--no-base, --save-baseline) has its results flat: one file.
 test("a single run writes one file, from its p50s", () => {
   const one = { static: { "toolbar.js bytes": 98, "toolbar.js gzip": 39 }, results: { mount: { p50: 2.2, min: 2, p90: 2.4 } } };
-  const files = houseFiles(one, join(RUNS, "one.json"));
+  const files = fiumFiles(one, join(RUNS, "one.json"));
   assert.deepEqual(Object.keys(files), [join(RUNS, "one.json")]);
   assert.deepEqual(files[join(RUNS, "one.json")].metrics["mount ms"].samples, [2.2]);
 });
 
 test("an op that measures only bytes (0ms every rep) has no time metric", () => {
   const out = { static: {}, results: { "storage bytes @100": { p50: 0, bytes: 9, ms: [0, 0] } } };
-  assert.deepEqual(Object.keys(houseSide(out, null).metrics), ["storage bytes @100 bytes"]);
+  assert.deepEqual(Object.keys(fiumSide(out, null).metrics), ["storage bytes @100 bytes"]);
 });
 
 // fium RULES.md K2: runs live outside the repo, in ${FIUM_HOME:-~/.fium}/runs/<repo>/.

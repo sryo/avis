@@ -7,7 +7,7 @@
 //                          [--only "op|op"] [--out ~/.fium/runs/avis/latest.json] [--chrome path]
 //                          [--save-baseline]
 // --save-baseline runs the working tree alone and records it in bench/baseline.json.
-// --house <out.json> also writes the run in fium's format (fium RULES.md K2): an A/B
+// --fium <out.json> also writes the run in fium's format (fium RULES.md K2): an A/B
 // run as <out.json> and its base side as <out>.base.json, judged with
 //   fium compare <out>.base.json <out.json> --noise bench/noise.json
 
@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function parseArgs(argv) {
-  const a = { reps: 15, src: "toolbar.js", base: undefined, out: null, only: null, chrome: null, saveBaseline: false, house: null, noise: null };
+  const a = { reps: 15, src: "toolbar.js", base: undefined, out: null, only: null, chrome: null, saveBaseline: false, fium: null, noise: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === "--reps") a.reps = +argv[++i];
@@ -33,7 +33,7 @@ export function parseArgs(argv) {
     else if (k === "--only") a.only = argv[++i].split("|").map((s) => s.trim());
     else if (k === "--chrome") a.chrome = argv[++i];
     else if (k === "--save-baseline") { a.saveBaseline = true; a.base = null; }
-    else if (k === "--house") a.house = argv[++i];
+    else if (k === "--fium") a.fium = argv[++i];
     else if (k === "--noise") a.noise = argv[++i];
     else throw new Error("unknown arg " + k);
   }
@@ -143,7 +143,7 @@ export async function runSources(srcs, opts) {
 // One side ("base" or "run") of an A/B run, or a single run, in fium's format:
 // toolbar.js's sizes and each op's result bytes as bytes, its per-rep timings as
 // time (a single run without them gives its p50). An op that errored is left out.
-export function houseSide(out, side) {
+export function fiumSide(out, side) {
   const metrics = {};
   const stat = side ? out[side].static : out.static;
   for (const [k, v] of Object.entries(stat)) metrics[k] = { dir: "lower", kind: "bytes", samples: [v] };
@@ -161,10 +161,10 @@ export function houseSide(out, side) {
 // move under 0.05ms is never a change.
 export const NOISE_ARGS = ["--abs", "*=0.05"];
 
-// {path: run} for --house <file>: an A/B run's base side beside it as <file>.base.json.
-export function houseFiles(out, file) {
-  if (!out.base) return { [file]: houseSide(out, null) };
-  return { [file.replace(/\.json$/, "") + ".base.json"]: houseSide(out, "base"), [file]: houseSide(out, "run") };
+// {path: run} for --fium <file>: an A/B run's base side beside it as <file>.base.json.
+export function fiumFiles(out, file) {
+  if (!out.base) return { [file]: fiumSide(out, null) };
+  return { [file.replace(/\.json$/, "") + ".base.json"]: fiumSide(out, "base"), [file]: fiumSide(out, "run") };
 }
 
 // ${FIUM_HOME:-~/.fium}/runs/<repo>/ (fium RULES.md K2), named after the main checkout so a worktree's runs land with its repo's.
@@ -187,7 +187,7 @@ export async function run(opts) {
   const runInfo = { rev: rev + (dirty ? "+dirty" : ""), static: staticOf(src) };
   if (opts.base === null) {
     const { browser, results } = await runSources([src], opts);
-    const flat = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.error ? v : opts.house ? v[0] : (({ ms, ...rest }) => rest)(v[0])]));
+    const flat = Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.error ? v : opts.fium ? v[0] : (({ ms, ...rest }) => rest)(v[0])]));
     return { date: new Date().toISOString(), browser, reps: opts.reps, ...runInfo, results: flat };
   }
   const baseRef = opts.base || baselineRef();
@@ -216,7 +216,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
   console.log(`${out.browser} reps ${out.reps} → ${file}`);
-  if (opts.house) for (const [f, h] of Object.entries(houseFiles(out, opts.house))) {
+  if (opts.fium) for (const [f, h] of Object.entries(fiumFiles(out, opts.fium))) {
     const p = resolve(ROOT, f);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(h, null, 2) + "\n");
@@ -225,13 +225,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // --noise <file>: this run is an A/A (--base HEAD, toolbar.js unchanged); fium's
   // ranges for it become the noise every later compare allows.
   if (opts.noise) {
-    if (!opts.house || !out.base) throw new Error("--noise needs an A/B run with --house");
-    const [baseFile, runFile] = Object.keys(houseFiles(out, opts.house)).map((f) => resolve(ROOT, f));
+    if (!opts.fium || !out.base) throw new Error("--noise needs an A/B run with --fium");
+    const [baseFile, runFile] = Object.keys(fiumFiles(out, opts.fium)).map((f) => resolve(ROOT, f));
     const cli = process.env.FIUM || join(homedir(), "Documents/fium/fium");
     writeFileSync(resolve(ROOT, opts.noise), execFileSync(cli, ["noise", baseFile, runFile, ...NOISE_ARGS]));
     console.log(`noise → ${opts.noise}`);
   }
-  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.house ? `; judge with: fium compare ${Object.keys(houseFiles(out, opts.house)).join(" ")} --noise bench/noise.json` : ""));
+  if (out.base) console.log(`A/B: base ${out.base.rev} vs run ${out.run.rev}` + (opts.fium ? `; judge with: fium compare ${Object.keys(fiumFiles(out, opts.fium)).join(" ")} --noise bench/noise.json` : ""));
   else for (const [op, v] of Object.entries(out.results)) {
     console.log(v.error ? `${op.padEnd(28)} ERROR ${v.error.split("\n")[0]}`
       : `${op.padEnd(28)} p50 ${String(v.p50).padStart(9)}ms  min ${String(v.min).padStart(9)}ms${v.bytes != null ? `  ${v.bytes}B` : ""}`);

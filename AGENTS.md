@@ -28,7 +28,9 @@ Architecture and invariants for the avis skill.
 
 ## Bench
 
-`node scripts/bench.mjs --house ~/.fium/runs/avis/house.json` runs `bench/suite.js` on the working tree's `toolbar.js` and on the base ref, reps interleaved in one headless Chrome (no focus taken). It writes both sides in fium's run format, and `fium compare ~/.fium/runs/avis/house.base.json ~/.fium/runs/avis/house.json --noise bench/noise.json` judges the change (fium RULES.md K). `bench/noise.json` comes from an A/A run (`--base HEAD --noise bench/noise.json` on an unchanged `toolbar.js`), floored at the 10% spread this machine shows.
+A change is done when `fium done` says so: it runs every How we know row of GOALS.md where the change started and now, and shows each number under its goal. What follows is the bench it runs.
+
+`node scripts/bench.mjs --fium ~/.fium/runs/avis/fium.json` runs `bench/suite.js` on the working tree's `toolbar.js` and on the base ref, reps interleaved in one headless Chrome (no focus taken). It writes both sides in fium's run format, and `fium compare ~/.fium/runs/avis/fium.base.json ~/.fium/runs/avis/fium.json --noise bench/noise.json` judges the change (fium RULES.md K). `bench/noise.json` comes from an A/A run (`--base HEAD --noise bench/noise.json` on an unchanged `toolbar.js`), floored at the 10% spread this machine shows.
 
 ## Rules for changes
 

@@ -18,8 +18,8 @@ You leave comments right on a page and your agent sees them in context, or the a
 | Goal | Metric | Where | Run |
 |---|---|---|---|
 | 1 | annotation fields populate on every fixture | `npm test` | `npm test` |
-| 2 | toolbar.js bytes and gzip; mount ms (cold parse and compile) | `node scripts/bench.mjs` | `node scripts/bench.mjs --no-base --out ~/.fium/runs/avis/done.raw.json --house ~/.fium/runs/avis/done.json >&2 && echo ~/.fium/runs/avis/done.json` |
-| 3 | hover, scroll reposition, page mousedown, console.warn ms | `node scripts/bench.mjs`: hover x300 ms, scroll reposition @100 ms, page mousedown x300 ms, console.warn x2000 (obj) ms | `node scripts/bench.mjs --no-base --out ~/.fium/runs/avis/done.raw.json --house ~/.fium/runs/avis/done.json >&2 && echo ~/.fium/runs/avis/done.json` |
+| 2 | toolbar.js bytes and gzip; mount ms (cold parse and compile) | `node scripts/bench.mjs` | `node scripts/bench.mjs --no-base --out ~/.fium/runs/avis/done.raw.json --fium ~/.fium/runs/avis/done.json >&2 && echo ~/.fium/runs/avis/done.json` |
+| 3 | hover, scroll reposition, page mousedown, console.warn ms | `node scripts/bench.mjs`: hover x300 ms, scroll reposition @100 ms, page mousedown x300 ms, console.warn x2000 (obj) ms | `node scripts/bench.mjs --no-base --out ~/.fium/runs/avis/done.raw.json --fium ~/.fium/runs/avis/done.json >&2 && echo ~/.fium/runs/avis/done.json` |
 | 4 | SKILL.md at most 5000 bytes | `test/doc.test.mjs` | `node --test test/doc.test.mjs && wc -c < SKILL.md` |
 
 Caps: `q3 k2 n2 b1 t1 toolbar.js*=2 summary*=2 mount*=2` (how firm each kind of number is: 3 hard, must end the same or better; 2 semi-hard, past its margin you choose; 1 semi-hard with a 10% margin; 0 soft, no limit; fium RULES.md K6)
