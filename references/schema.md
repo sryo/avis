@@ -35,6 +35,7 @@ Fields: `id`, `comment`, `source`, `replyTo`, `sourceFile`, `reactComponents`, `
 | `styleTweaks` | Array of `{selector, source, property, before, after}`, present when the user edited values in the post-it's `tweak rules` panel. |
 | `computedStyles`, `outerHTML`, `cssClasses` | Full annotation only. `outerHTML` is capped at 1000 chars. |
 | `boundingBox`, `viewport`, `x`, `y`, `client`, `timestamp` | Geometry and environment at capture time (full annotation only). |
+| `client.pointer` | `"coarse"` when the primary input is a finger (phone, tablet, a room in phone mode): the fix likely belongs in the narrow-viewport styles. `"fine"` otherwise. |
 | `status` | `pending` (the default, omitted from `summary()`), `acknowledged` or `working`. Resolved and dismissed annotations are deleted. |
 
 ## Locating the source

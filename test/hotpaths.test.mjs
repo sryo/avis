@@ -234,10 +234,10 @@ test("dropping a dragged marker on the toolbar keeps its anchor; on the page re-
     const host = document.getElementById("__avis_host");
     const id = avis.add("#a", "move me");
     const drag = (to) => {
-      markerFor(document, id).dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, clientX: 0, clientY: 0 }));
-      document.dispatchEvent(new window.MouseEvent("mousemove", { clientX: 40, clientY: 40 }));
+      markerFor(document, id).dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, clientX: 0, clientY: 0 }));
+      document.dispatchEvent(new window.PointerEvent("pointermove", { clientX: 40, clientY: 40 }));
       hits.doc = to;
-      document.dispatchEvent(new window.MouseEvent("mouseup", { clientX: 50, clientY: 50 }));
+      document.dispatchEvent(new window.PointerEvent("pointerup", { clientX: 50, clientY: 50 }));
     };
     hits.shadow = () => [sh.querySelector(".toolbar")];
     hits.doc = () => [host, document.body];

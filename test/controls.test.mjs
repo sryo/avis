@@ -24,8 +24,8 @@ async function withPage(html, fn, opts = {}) {
     },
     edit(id) {
       const mk = shadow.querySelector(`.marker[data-annotation-id="${id}"]`);
-      mk.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, clientX: 1, clientY: 1 }));
-      window.document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, clientX: 1, clientY: 1 }));
+      mk.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, clientX: 1, clientY: 1 }));
+      window.document.dispatchEvent(new window.PointerEvent("pointerup", { bubbles: true, clientX: 1, clientY: 1 }));
     },
     blocks: () => [...shadow.querySelectorAll(".popup-rule")],
     setColor(block, value) {

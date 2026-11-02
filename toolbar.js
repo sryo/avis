@@ -654,6 +654,7 @@
       platform: navigator.userAgentData?.platform || navigator.platform,
       devicePixelRatio: window.devicePixelRatio,
       colorScheme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+      pointer: matchMedia("(pointer: coarse)").matches ? "coarse" : "fine",
     };
     const boundingBox = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
     const parent = parentOf(el);
@@ -884,7 +885,7 @@
     .popup .label {
       font-size: 11px; opacity: .55; margin-bottom: 10px;
       word-break: break-all; font-family: ui-monospace, monospace;
-      cursor: grab; user-select: none;
+      cursor: grab; user-select: none; touch-action: none;
     }
     /* Reply: the agent's parent comment quoted in lavender on the yellow paper. */
     .popup.reply .label {
@@ -907,7 +908,15 @@
       caret-color: #1a1a0e;
       overflow-y: auto;
     }
-    .popup .hint { font-size: 10px; opacity: .45; margin-top: 10px; }
+    .popup .hint { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; font-size: 10px; }
+    .popup .hint span { opacity: .45; flex: 1; }
+    .popup .act { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; opacity: .6; text-decoration: underline; }
+    .popup .hint .act { display: none; }
+    @media (pointer: coarse) {
+      .popup .hint span { display: none; }
+      .popup .hint .act { display: inline; font-size: 13px; padding: 6px 2px; }
+      .marker::after { content: ""; position: absolute; inset: -11px; border-radius: 50%; }
+    }
     .popup .trail {
       font-size: 10px;
       opacity: .6;
@@ -929,7 +938,7 @@
       box-shadow: 0 2px 6px rgba(0,0,0,.25);
       pointer-events: auto; cursor: grab;
       z-index: 95;
-      user-select: none;
+      user-select: none; touch-action: none;
     }
     .marker:hover { background: #4d8ff9; }
     .marker.agent { background: #8b5cf6; }
@@ -1292,11 +1301,7 @@
       field.dispatchEvent(new Event("change"));
       field.blur();
     } else if (popup) {
-      closePopup();
-      if (overlay) overlay.style.pointerEvents = "auto";
-      render();
-      // Replay hover so the outline reappears without waiting for a mousemove.
-      if (state.pointing) { lastHoverEl = null; onHover({ clientX: lastHoverX, clientY: lastHoverY }); }
+      discardPopup();
     } else if (state.pointing) {
       exitPointMode();
     } else return;
@@ -1349,26 +1354,32 @@
       h("div", "trail"),
       h("div", "label"),
       h("textarea", 0, { placeholder: isReply ? "reply…" : "What should change?", "aria-label": "comment" }),
-      h("div", "hint", 0, "click outside to save · esc to discard"));
+      h("div", "hint", 0, h("span", 0, 0, "click outside to save · esc to discard"),
+        h("button", "act discard", { type: "button" }, "discard"), h("button", "act save", { type: "button" }, "save")));
     popup._ownsKeydown = ownsKeydown;
     popup.querySelector(".label").textContent = isReply
       ? `↪ ${(existing.comment || "").slice(0, 60)}`
       : isEdit
       ? `<${existing.element}> "${(existing.text || "").slice(0, 40)}"`
       : describe(el);
+    // Widens a fingertip pick one level, keeping the draft.
+    const parent = isCreate && parentOf(el);
+    if (parent && !/^(BODY|HTML)$/.test(parent.tagName)) {
+      const up = h("button", "act up", { type: "button" }, "↑ parent");
+      up.onclick = () => { const draft = ta.value; openPopup(parent, x, y); popup.querySelector("textarea").value = draft; };
+      popup.querySelector(".label").append(" ", up);
+    }
     // Breadcrumb of the clicks that led here; a create reads clickChain, capture() waits for commit.
     const trail = isCreate ? clickChain.slice() : ((existing && existing.priorClicks) || []);
     if (trail.length) {
       popup.querySelector(".trail").textContent = trail.map((c) => c.target).join(" › ");
     }
-    const W = 260, H_EST = 140;
+    const W = 260, H_EST = 140, b = viewBounds();
     let px = x + 12, py = y + 12;
-    if (px + W > innerWidth - 8) px = innerWidth - W - 8;
-    if (py + H_EST > innerHeight - 8) py = Math.max(8, y - H_EST - 12);
-    if (px < 8) px = 8;
-    if (py < 8) py = 8;
-    popup.style.left = px + "px";
-    popup.style.top = py + "px";
+    if (px + W > b.r - 8) px = b.r - W - 8;
+    if (py + H_EST > b.b - 8) py = y - H_EST - 12;
+    popup.style.left = Math.max(b.l + 8, px) + "px";
+    popup.style.top = Math.max(b.t + 8, py) + "px";
     shadow.appendChild(popup);
 
     if (isEdit) {
@@ -1458,7 +1469,8 @@
 
     const labelEl = popup.querySelector(".label");
     let drag = null;
-    labelEl.addEventListener("mousedown", (e) => {
+    labelEl.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
       e.preventDefault();
       drag = {
         startX: e.clientX,
@@ -1467,19 +1479,22 @@
         baseTop: parseFloat(popup.style.top) || 0,
       };
       popup.classList.add("dragging");
-      document.addEventListener("mousemove", onPopupDrag);
-      document.addEventListener("mouseup", onPopupDragEnd);
+      document.addEventListener("pointermove", onPopupDrag);
+      document.addEventListener("pointerup", onPopupDragEnd);
+      document.addEventListener("pointercancel", onPopupDragEnd);
     });
     function onPopupDrag(e) {
       if (!drag) return;
       const nx = drag.baseLeft + e.clientX - drag.startX;
       const ny = drag.baseTop + e.clientY - drag.startY;
-      popup.style.left = Math.max(-200, Math.min(innerWidth - 60, nx)) + "px";
-      popup.style.top = Math.max(0, Math.min(innerHeight - 30, ny)) + "px";
+      const b = viewBounds();
+      popup.style.left = Math.max(b.l - 200, Math.min(b.r - 60, nx)) + "px";
+      popup.style.top = Math.max(b.t, Math.min(b.b - 30, ny)) + "px";
     }
     function onPopupDragEnd() {
-      document.removeEventListener("mousemove", onPopupDrag);
-      document.removeEventListener("mouseup", onPopupDragEnd);
+      document.removeEventListener("pointermove", onPopupDrag);
+      document.removeEventListener("pointerup", onPopupDragEnd);
+      document.removeEventListener("pointercancel", onPopupDragEnd);
       drag = null;
       popup.classList.remove("dragging");
     }
@@ -1488,6 +1503,8 @@
     ta.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
     });
+    popup.querySelector(".save").onclick = commit;
+    popup.querySelector(".discard").onclick = discardPopup;
 
     // A marker's own mousedown commits, so the same gesture can start a drag.
     function onOutside(e) {
@@ -1535,6 +1552,25 @@
       if (overlay) overlay.style.pointerEvents = "auto";
       render();
     }
+  }
+
+  function discardPopup() {
+    closePopup();
+    if (overlay) overlay.style.pointerEvents = "auto";
+    render();
+    // Replay hover so the outline reappears without waiting for a mousemove.
+    if (state.pointing) { lastHoverEl = null; onHover({ clientX: lastHoverX, clientY: lastHoverY }); }
+  }
+
+  // The visible viewport, which shrinks when a phone keyboard opens.
+  function viewBounds() {
+    const v = window.visualViewport || { offsetLeft: 0, offsetTop: 0, width: innerWidth, height: innerHeight };
+    return { l: v.offsetLeft, t: v.offsetTop, r: v.offsetLeft + v.width, b: v.offsetTop + v.height };
+  }
+  function fitPopup() {
+    if (!popup) return;
+    const b = viewBounds(), over = popup.getBoundingClientRect().bottom - b.b + 8;
+    if (over > 0) popup.style.top = Math.max(b.t + 8, parseFloat(popup.style.top) - over) + "px";
   }
 
   function closePopup() {
@@ -1945,9 +1981,9 @@
 
   let dragState = null;
 
-  markerLayer.addEventListener("mousedown", (e) => {
+  markerLayer.addEventListener("pointerdown", (e) => {
     let m = e.target.closest(".marker");
-    if (!m) return;
+    if (!m || e.button !== 0) return;
     const id = m.dataset.annotationId;
     // Commit an open popup first, then rebind to the re-rendered marker.
     if (popup && popup._commit) {
@@ -1981,8 +2017,9 @@
     openMarker(markerFor(id));
   });
   function markerDragListeners(f) {
-    document[f]("mousemove", onMarkerDragMove);
-    document[f]("mouseup", onMarkerDragEnd);
+    document[f]("pointermove", onMarkerDragMove);
+    document[f]("pointerup", onMarkerDragEnd);
+    document[f]("pointercancel", cancelMarkerDrag);
     document[f]("keydown", onMarkerDragKey, true);
   }
 
@@ -2079,6 +2116,7 @@
   // Scroll doesn't bubble; capture catches it from any scrolling element.
   document.addEventListener("scroll", positionMarkers, { passive: true, capture: true });
   window.addEventListener("resize", positionMarkers);
+  if (window.visualViewport) for (const t of ["resize", "scroll"]) window.visualViewport.addEventListener(t, fitPopup);
 
   // Feeds clickChain. Reads text nodes only up to the label's length: no layout, no whole-subtree string.
   document.addEventListener("mousedown", (e) => {

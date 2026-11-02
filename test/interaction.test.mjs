@@ -19,7 +19,7 @@ async function withUI(opts, fn) {
   const errors = [];
   window.addEventListener("error", (e) => errors.push(e.error || e.message));
   const mouse = (node, type, x = 0, y = 0) =>
-    node.dispatchEvent(new window.MouseEvent(type, { bubbles: true, composed: true, clientX: x, clientY: y }));
+    node.dispatchEvent(new window.PointerEvent(type, { bubbles: true, composed: true, clientX: x, clientY: y }));
   const key = (node, k, extra = {}) =>
     node.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, bubbles: true, composed: true, cancelable: true, ...extra }));
   const ui = {
@@ -41,10 +41,10 @@ test("dragging a marker onto another element keeps source, replyTo, status and s
     avis.markWorking(id);
     const tweaks = [{ selector: "#a", source: "inline", property: "color", before: "red", after: "blue" }];
     avis.annotations.find((a) => a.id === id).styleTweaks = tweaks;
-    ui.mouse(ui.marker(id), "mousedown", 0, 0);
+    ui.mouse(ui.marker(id), "pointerdown", 0, 0);
     ui.pointAt("b");
-    ui.mouse(document(ui), "mousemove", 40, 40);
-    ui.mouse(document(ui), "mouseup", 40, 40);
+    ui.mouse(document(ui), "pointermove", 40, 40);
+    ui.mouse(document(ui), "pointerup", 40, 40);
     const a = avis.annotations.find((x) => x.id === id);
     assert.equal(a.elementPath, "#b");
     assert.equal(a.source, "agent");
@@ -96,8 +96,8 @@ test("Escape during a marker drag cancels the drag and stays in point mode", () 
   withUI({}, ({ avis, ui }) => {
     const id = avis.add("#a", "note");
     ui.shadow.querySelector("[data-act=point]").click();
-    ui.mouse(ui.marker(id), "mousedown", 0, 0);
-    ui.mouse(document(ui), "mousemove", 50, 50);
+    ui.mouse(ui.marker(id), "pointerdown", 0, 0);
+    ui.mouse(document(ui), "pointermove", 50, 50);
     assert.ok(ui.shadow.querySelector(".marker.dragging"), "dragging");
     ui.key(document(ui).body, "Escape");
     assert.equal(ui.shadow.querySelector(".marker.dragging"), null, "drag cancelled");
@@ -107,12 +107,12 @@ test("Escape during a marker drag cancels the drag and stays in point mode", () 
 test("closing the popup mid label-drag detaches the drag listeners without errors", () =>
   withUI({}, ({ ui }) => {
     ui.pick();
-    ui.mouse(ui.shadow.querySelector(".popup .label"), "mousedown", 5, 5);
+    ui.mouse(ui.shadow.querySelector(".popup .label"), "pointerdown", 5, 5);
     ui.key(ui.shadow.querySelector(".popup textarea"), "Escape");
     const doc = document(ui);
-    ui.mouse(doc, "mousemove", 30, 30);
-    ui.mouse(doc, "mouseup", 30, 30);
-    ui.mouse(doc, "mouseup", 30, 30);
+    ui.mouse(doc, "pointermove", 30, 30);
+    ui.mouse(doc, "pointerup", 30, 30);
+    ui.mouse(doc, "pointerup", 30, 30);
     assert.deepEqual(ui.errors, []);
   }));
 
@@ -121,8 +121,8 @@ test("a reply to an agent annotation whose element is gone is still saved", () =
     const parent = avis.add("#a", "agent note");
     document(ui).getElementById("a").remove();
     const m = ui.marker(parent);
-    ui.mouse(m, "mousedown", 0, 0);
-    ui.mouse(document(ui), "mouseup", 0, 0);
+    ui.mouse(m, "pointerdown", 0, 0);
+    ui.mouse(document(ui), "pointerup", 0, 0);
     const ta = ui.shadow.querySelector(".popup textarea");
     assert.ok(ta, "reply popup open");
     ta.value = "my reply";
