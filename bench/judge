@@ -1,0 +1,5 @@
+test/**
+bench/**
+scripts/bench.mjs
+package.json
+package-lock.json
