@@ -1,3 +1,5 @@
+<img src="logo.svg" alt="avis logo" width="128">
+
 # /avis
 
 avis lets you leave comments directly on a page and have your agent see them in context. You can also flip it: ask the agent to annotate the page for you.
