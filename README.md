@@ -1,4 +1,4 @@
-<img src="logo.svg" alt="avis logo" width="128">
+<img src="logo.svg" alt="avis" width="128">
 
 # /avis
 
