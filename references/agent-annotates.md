@@ -16,6 +16,7 @@ The user can flip the direction and ask you to pin comments. Typical requests:
    - `accessibility_snapshot` for refs and roles.
    - `git log`, `git diff` and the source files for code context.
    - `screenshot` when the issue is visual.
+   - While the user is away, read or screenshot it in a tab opened with `new_tab { url, loft: true }`, perch's own window on the loft (a hidden screen) in the user's profile. Pins live per profile, so pins made there reach the user, unlike in a room.
 3. Pin every finding in one `eval_js` call:
    ```
    return [

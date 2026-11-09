@@ -131,3 +131,10 @@ test("README says to type done in the chat with your agent", () => {
 test("AGENTS.md has a ## Test section with the test command", () => {
   assert.match(read("AGENTS.md"), /^## Test\n\n`node --test test\/`/m);
 });
+
+// Pins live in each profile's localStorage, so a loft window in the user's profile hands them over; a room's don't.
+test("agent-annotates.md offers the loft for reading a page while the user is away", () => {
+  const text = read("references/agent-annotates.md");
+  assert.match(text, /while the user is away.*new_tab \{ url, loft: true \}/is);
+  assert.match(text, /pins made there reach the user.*unlike in a room/is);
+});
