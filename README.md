@@ -9,8 +9,7 @@ Needs [perch](https://github.com/sryo/perch) (macOS); your agent offers to insta
 ## Install
 
 ```bash
-git clone https://github.com/sryo/avis ~/.agents/skills/avis
-mkdir -p ~/.claude/skills && ln -sfn ~/.agents/skills/avis ~/.claude/skills/avis
+curl -fsSL https://raw.githubusercontent.com/sryo/avis/main/install.sh | bash
 ```
 
 Restart your agent if it doesn't show up.

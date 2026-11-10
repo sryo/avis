@@ -96,14 +96,18 @@ test("README has Install then Use", () => {
 });
 
 // One copy in ~/.agents/skills (Codex, Copilot), linked into ~/.claude/skills, so
-// every agent runs the same files and one `git pull` updates them all.
+// every agent runs the same files and one `git pull` updates them all. The docs show
+// install.sh's one-liner; install.sh does the clone and the link.
 test("install clones once into ~/.agents/skills and links ~/.claude/skills to it", () => {
+  const sh = read("install.sh");
+  assert.ok(sh.includes('AVIS_DIR="${AVIS_DIR:-$HOME/.agents/skills/avis}"'), "install.sh clones into ~/.agents/skills");
+  assert.ok(sh.includes('CLAUDE_LINK="$HOME/.claude/skills/avis"'), "install.sh links ~/.claude/skills");
+  // -fn replaces an existing ~/.claude/skills/avis link instead of linking inside it.
+  assert.ok(sh.includes('ln -sfn "$src" "$dest"'), "install.sh links with ln -sfn");
   for (const f of ["README.md", "index.html"]) {
     const doc = read(f);
-    assert.ok(doc.includes("git clone https://github.com/sryo/avis ~/.agents/skills/avis"), `${f} clones into ~/.agents/skills`);
-    // -fn replaces an existing ~/.claude/skills/avis link instead of linking inside it.
-    assert.ok(doc.includes("ln -sfn ~/.agents/skills/avis ~/.claude/skills/avis"), `${f} links ~/.claude/skills`);
-    assert.ok(!doc.includes("clone into") && !doc.includes("Clone wherever"), `${f} has one install path`);
+    assert.ok(doc.includes("curl -fsSL https://raw.githubusercontent.com/sryo/avis/main/install.sh | bash"), `${f} shows the one-liner`);
+    assert.ok(!doc.includes("git clone") && !doc.includes("Clone wherever"), `${f} has one install path`);
   }
 });
 

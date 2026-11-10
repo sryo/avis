@@ -17,6 +17,7 @@ Architecture and invariants for the avis skill.
 ├── package.json          # devDependencies only (happy-dom); nothing ships from it
 ├── index.html            # site; loads toolbar.js with a plain <script>
 ├── README.md             # public-facing intro + install
+├── install.sh            # one-command install: clone to ~/.agents/skills, link ~/.claude/skills
 ├── AGENTS.md             # this file
 ├── CLAUDE.md             # symlink to AGENTS.md
 └── LICENSE
