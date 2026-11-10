@@ -16,7 +16,7 @@ The user can flip the direction and ask you to pin comments. Typical requests:
    - `accessibility_snapshot` for refs and roles.
    - `git log`, `git diff` and the source files for code context.
    - `screenshot` when the issue is visual.
-   - While the user is away, read or screenshot it in a tab opened with `new_tab { url, loft: true }`, perch's own window on the loft (a hidden screen) in the user's profile. Pins live per profile, so pins made there reach the user, unlike in a room. To review at a given size (a breakpoint), make a loft that size first: `loft up 1280x800 --new --json`, then `new_tab { url, loft: "<id>" }`, and `loft down <id>` when done.
+   - While the user is away, read or screenshot it in a tab opened with `new_tab { url, loft: true }`, perch's own window on the loft (a hidden screen) in the user's profile. Pins live per profile, so pins made there reach the user, unlike in a room. To review at a given size (a breakpoint), `new_tab { url, loft: "1280x800" }`: perch makes a loft that size and removes it with the window.
 3. Pin every finding in one `eval_js` call:
    ```
    return [
