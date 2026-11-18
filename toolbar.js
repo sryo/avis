@@ -1057,6 +1057,17 @@
     .popup-decl.touched .popup-length-unit {
       opacity: 1; font-weight: 600;
     }
+    .popup-states { display: flex; gap: 4px; margin-bottom: 6px; }
+    .popup-state {
+      font: 10px/1.2 ui-monospace, monospace; color: #1a1a0e;
+      background: transparent; border: 1px solid rgba(26,26,14,.22); border-radius: 2px;
+      padding: 1px 6px; cursor: pointer; opacity: .6;
+    }
+    .popup-state[aria-pressed="true"] { opacity: 1; border-color: #7a6a2e; font-weight: 600; }
+    .popup-decl-token { padding-left: 8px; border-left: 2px solid rgba(26,26,14,.22); }
+    .popup-decl-shadow { grid-template-columns: 76px 1fr 32px; }
+    .popup-shadow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+    .popup-decl-shadow .popup-length-unit { display: none; }
     .popup-edge-link {
       background: transparent; border: 0; padding: 0;
       font: 13px/1 ui-monospace, monospace;
@@ -1393,44 +1404,70 @@
     // with no matching rules the toggle never mounts.
     let previewSheet = null;
     const ruleBlocks = [];
-    // "block|property" → styleTweak; newest per property wins. Unplaceable saved tweaks stay as-is.
+    // "rule|property" → styleTweak; newest per property wins. Unplaceable saved tweaks stay as-is.
     const edits = new Map();
     let kept = isEdit && Array.isArray(existing.styleTweaks) ? existing.styleTweaks : [];
+    const hist = { stack: [], skip: false };
     if (!isReply) {
       const targetEl = el || resolveTarget(existing && existing.elementPath);
       if (targetEl) {
-        const { rules, unreadable } = discoverMatchedRules(targetEl);
-        if (rules.length) {
+        const first = discoverMatchedRules(targetEl);
+        if (first.rules.length) {
           previewSheet = createPreviewSheet();
           const parts = splitPath(selector || getSelector(targetEl));
           previewSheet.attach(parts[parts.length - 1], targetEl.getRootNode());
 
           const chev = h("span", "popup-tweaks-chevron");
           const toggle = h("button", "popup-tweaks-toggle", { type: "button" }, chev,
-            h("span", 0, 0, `tweak rules · ${rules.length} rule${rules.length === 1 ? "" : "s"}`),
+            h("span", 0, 0, `tweak rules · ${first.rules.length} rule${first.rules.length === 1 ? "" : "s"}`),
             h("span", "popup-tweaks-leader", 0, "·".repeat(60)));
           const tweaksRoot = h("div", "popup-tweaks");
-
-          rules.forEach((entry, i) => {
-            const source = ruleSourceLabel(entry);
-            const rb = buildRuleBlock(entry, source, (decl, after) => {
-              const k = i + "|" + decl.property;
-              edits.delete(k);
-              edits.set(k, { selector: entry.selectorText, source, property: decl.property, before: decl.value, after });
-              previewSheet.set(decl.property, after);
-            }, (property) => {
-              edits.delete(i + "|" + property);
-              const last = [...edits.values()].filter((t) => t.property === property).pop();
-              last ? previewSheet.set(property, last.after) : previewSheet.clear(property);
+          const rulesRoot = h("div");
+          const stateBtns = ["", "hover", "focus", "active"].map((s) => {
+            const b = h("button", "popup-state", { type: "button", "aria-pressed": String(!s) }, s || "default");
+            b.addEventListener("click", () => {
+              for (const o of stateBtns) o.setAttribute("aria-pressed", String(o === b));
+              renderRules(s);
             });
-            ruleBlocks.push({ selector: entry.selectorText, hydrateTweak: rb.hydrateTweak });
-            tweaksRoot.appendChild(rb.block);
+            return b;
           });
+          tweaksRoot.append(h("div", "popup-states", { title: "Edit a state's rules; the preview holds that state" }, ...stateBtns), rulesRoot);
 
-          if (unreadable) {
-            tweaksRoot.appendChild(h("div", "popup-tweaks-unreadable", 0,
-              `· ${unreadable} stylesheet${unreadable === 1 ? "" : "s"} unreadable (cross-origin)`));
+          // The preview applies to the element in every state: it shows the forced one.
+          function renderRules(state) {
+            const { rules, unreadable } = state ? discoverMatchedRules(targetEl, state) : first;
+            rulesRoot.replaceChildren();
+            ruleBlocks.length = 0;
+            const seen = new Set();
+            for (const entry of rules) {
+              const source = ruleSourceLabel(entry);
+              const key = (tok, property) => tok ? `t|${tok.selectorText}|${tok.source}|${property}` : `${entry.selectorText}|${source}|${property}`;
+              const rb = buildRuleBlock(entry, source, (decl, after, tok) => {
+                const k = key(tok, decl.property);
+                edits.delete(k);
+                edits.set(k, {
+                  selector: tok ? tok.selectorText : entry.selectorText, source: tok ? tok.source : source,
+                  property: decl.property, before: tok ? tok.declared : decl.value, after,
+                });
+                previewSheet.set(k, decl.property, after, tok ? { sel: tok.selectorText, conds: tok.conds } : { conds: entry.conds });
+              }, (property, tok) => {
+                const k = key(tok, property);
+                edits.delete(k);
+                previewSheet.clear(k);
+              }, { count: countMatches(targetEl, entry, state), hist, seen, tokenFor: (name) => findTokenRule(targetEl, name) });
+              ruleBlocks.push(rb);
+              rulesRoot.appendChild(rb.block);
+            }
+            if (!rules.length) rulesRoot.appendChild(h("div", "popup-tweaks-unreadable", 0, `· no :${state} rules for this element`));
+            if (unreadable) {
+              rulesRoot.appendChild(h("div", "popup-tweaks-unreadable", 0,
+                `· ${unreadable} stylesheet${unreadable === 1 ? "" : "s"} unreadable (cross-origin)`));
+            }
+            // Edits made in another state show up again where their rule is listed.
+            for (const t of [...edits.values()]) ruleBlocks.some((rb) => rb.hydrateTweak(t));
+            kept = kept.filter((t) => !(typeof t.after === "string" && ruleBlocks.some((rb) => rb.hydrateTweak(t))));
           }
+          renderRules("");
 
           let isOpen = false;
           try { isOpen = localStorage.getItem(TWEAKS_OPEN_KEY) === "1"; } catch {}
@@ -1449,17 +1486,23 @@
           popup.insertBefore(toggle, hint);
           popup.insertBefore(tweaksRoot, hint);
 
-          kept = kept.filter((t) => !(typeof t.after === "string" &&
-            ruleBlocks.some((rb) => rb.selector === t.selector && rb.hydrateTweak(t.property, t.after))));
+          // Outside the comment box, Cmd/Ctrl+Z puts back the last edited control's value.
+          popup.addEventListener("keydown", (e) => {
+            if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+            if (e.composedPath()[0].localName === "textarea" || !hist.stack.length) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const { info, prev } = hist.stack.pop();
+            hist.skip = true;
+            try { info.revert(prev); } finally { hist.skip = false; }
+          });
         }
       }
     }
     popup._previewSheet = previewSheet;
 
     function collectTweaks() {
-      const byProp = new Map();
-      for (const t of edits.values()) { byProp.delete(t.property); byProp.set(t.property, t); }
-      return [...kept, ...byProp.values()];
+      return [...kept, ...edits.values()];
     }
 
     const ta = popup.querySelector("textarea");
@@ -1590,44 +1633,98 @@
   const splitSelectors = (s) =>
     (s.match(/(?:\((?:\([^()]*\)|[^()])*\)|\[[^\]]*\]|"[^"]*"|'[^']*'|\\.|[^,])+/g) || []).map((p) => p.trim());
 
-  // Block conditions are checked only once a rule inside matched.
-  function discoverMatchedRules(el) {
+  // The selector with a forced `:state` removed, so el.matches sees it as if the state held.
+  // Null when the part lacks that state or carries another interaction state or a pseudo-element.
+  function stripState(s, state) {
+    if (!state || s.includes("::")) return null;
+    const re = new RegExp(":" + state + "(?![-\\w])", "i");
+    if (!re.test(s)) return null;
+    const rest = s.replace(new RegExp(re.source, "gi"), "");
+    return PSEUDO_SELECTOR_RE.test(rest) ? null : rest.trim() || "*";
+  }
+
+  // `@media`/`@supports` text a grouping rule adds; `holds()` evaluates it for el, only when asked.
+  function ruleCondition(rule, el) {
+    const q = rule.media?.mediaText;
+    if (rule.type === 12) return { text: "@supports " + rule.conditionText, holds: () => CSS.supports(rule.conditionText) };
+    if (q) return { text: "@media " + q, holds: () => viewOf(el).matchMedia(q).matches };
+    return null;
+  }
+
+  // Block conditions are checked only once a rule inside matched. With `state`, only
+  // rules that style that interaction state are returned, matched as if el were in it.
+  function discoverMatchedRules(el, state = "") {
     const rules = [];
     let unreadable = 0;
     const matches = (s) => { try { return el.matches(s); } catch {} };
-    function walk(rule, parent) {
+    function walk(rule, parent, conds) {
       const mark = rules.length;
       let sel = parent;
       // Typeless with a style: CSSNestedDeclarations.
       if (rule.type === 1 || (parent && !rule.type && rule.style)) {
         sel = rule.selectorText ?? parent;
         if (parent && rule.selectorText) sel = splitSelectors(sel).map((s) => (/&/.test(s) ? s : "& " + s).replace(/&/g, `:is(${parent})`)).join(", ");
-        if (rule.style.length && matches(sel) !== false &&
-            splitSelectors(sel).some((s) => !PSEUDO_SELECTOR_RE.test(s) && matches(s))) rules.push({ rule, selectorText: sel });
+        if (rule.style.length && (state || matches(sel) !== false) &&
+            splitSelectors(sel).some((s) => state ? matches(stripState(s, state) || ":not(*)") : !PSEUDO_SELECTOR_RE.test(s) && matches(s))) rules.push({ rule, selectorText: sel, conds });
       }
       if (rule.constructor.name === "CSSStartingStyleRule") return;
       let list;
       try { list = rule.type === 3 ? rule.styleSheet?.cssRules : rule.cssRules; } catch { unreadable++; }
-      if (list) for (const r of list) walk(r, sel);
-      const q = rule.media?.mediaText;
-      if (rules.length > mark && (rule.type === 12 ? !CSS.supports(rule.conditionText) : q && !viewOf(el).matchMedia(q).matches)) rules.length = mark;
+      const cond = ruleCondition(rule, el);
+      if (list) for (const r of list) walk(r, sel, cond ? [...conds, cond.text] : conds);
+      if (rules.length > mark && cond && !cond.holds()) rules.length = mark;
     }
     // A shadow root or frame document carries its own sheets.
     const root = el.getRootNode();
     for (const sheet of [...(root.styleSheets || []), ...(root.adoptedStyleSheets || [])]) {
-      if (!ownSheets.has(sheet.ownerNode || sheet)) walk(sheet);
+      if (!ownSheets.has(sheet.ownerNode || sheet)) walk(sheet, undefined, []);
     }
-    if (el.style.length) rules.push({ rule: { style: el.style, _inline: true }, selectorText: "(inline)" });
+    if (!state && el.style.length) rules.push({ rule: { style: el.style, _inline: true }, selectorText: "(inline)", conds: [] });
     return { rules, unreadable };
+  }
+
+  // How many elements in el's tree the rule's selector reaches (a forced state counts as held).
+  function countMatches(el, entry, state = "") {
+    if (entry.rule._inline) return null;
+    const parts = splitSelectors(entry.selectorText)
+      .map((s) => state ? stripState(s, state) : PSEUDO_SELECTOR_RE.test(s) ? null : s).filter(Boolean);
+    try { return parts.length ? el.getRootNode().querySelectorAll(parts.join(", ")).length : null; } catch { return null; }
   }
 
   function ruleSourceLabel(entry) {
     if (entry.rule._inline) return "inline";
     const sheet = entry.rule.parentStyleSheet;
-    if (sheet.href) return new URL(sheet.href).pathname.split("/").pop() || sheet.href;
+    const conds = entry.conds?.length ? " " + entry.conds.join(" ") : "";
+    if (sheet.href) return (new URL(sheet.href).pathname.split("/").pop() || sheet.href) + conds;
     const owner = sheet.ownerNode;
-    if (owner?.localName === "style") return owner.id ? `<style id="${owner.id}">` : "<style>";
-    return "(stylesheet)";
+    if (owner?.localName === "style") return (owner.id ? `<style id="${owner.id}">` : "<style>") + conds;
+    return "(stylesheet)" + conds;
+  }
+
+  // The rule el inherits custom property `name` from (the last matching declaration in
+  // source order), for editing a var() token. Null when no readable rule declares it.
+  function findTokenRule(el, name) {
+    let found = null;
+    const reaches = (sel) => splitSelectors(sel).some((s) => { try { return !!el.closest(s); } catch {} });
+    function walk(rule, conds) {
+      if (rule.type === 1 && rule.style.getPropertyValue(name).trim() && reaches(rule.selectorText)) {
+        found = { rule, selectorText: rule.selectorText, conds, declared: rule.style.getPropertyValue(name).trim() };
+      }
+      if (rule.constructor.name === "CSSStartingStyleRule" || rule.type === 1) return;
+      const cond = ruleCondition(rule, el);
+      if (cond && !cond.holds()) return;
+      let list;
+      try { list = rule.type === 3 ? rule.styleSheet?.cssRules : rule.cssRules; } catch {}
+      if (list) for (const r of list) walk(r, cond ? [...conds, cond.text] : conds);
+    }
+    const root = el.getRootNode();
+    for (const sheet of [...(root.styleSheets || []), ...(root.adoptedStyleSheets || [])]) {
+      if (!ownSheets.has(sheet.ownerNode || sheet)) walk(sheet, []);
+    }
+    if (!found) return null;
+    found.source = ruleSourceLabel(found);
+    found.value = viewOf(el).getComputedStyle(el).getPropertyValue(name).trim();
+    return found.value ? found : null;
   }
 
   // CSSOM lists `padding: 8px 16px` as four longhands; these fold back into one edges
@@ -1712,9 +1809,47 @@
 
   const unitStep = (unit) => /^(r?em|ch|ex)$/.test(unit) ? 0.05 : 1;
 
+  // One layer of `[inset] x y [blur [spread]] color` in px, in any token order; else null.
+  // Several layers, other units and colors without a color control stay read-only.
+  function parseShadow(value, property) {
+    const text = value.trim();
+    if (splitSelectors(text).length !== 1) return null;
+    const tokens = [];
+    let depth = 0, cur = "";
+    for (const c of text) {
+      depth += c === "(" ? 1 : c === ")" ? -1 : 0;
+      if (/\s/.test(c) && !depth) { if (cur) tokens.push(cur); cur = ""; } else cur += c;
+    }
+    if (cur) tokens.push(cur);
+    let inset = false, color = "";
+    const nums = [];
+    for (const tk of tokens) {
+      if (tk === "inset") inset = true;
+      else if (/^-?(\d+\.?\d*|\.\d+)(px)?$/.test(tk)) nums.push(parseFloat(tk));
+      else if (!color) color = tk;
+      else return null;
+    }
+    const isText = property === "text-shadow";
+    if (nums.length < 2 || nums.length > (isText ? 3 : 4) || (isText && inset) || inferControl(color, "color").kind !== "color") return null;
+    while (nums.length < (isText ? 3 : 4)) nums.push(0);
+    return { inset, nums, color };
+  }
+
+  function formatShadow({ inset, nums, color }, property) {
+    const [x, y, blur, spread] = nums.map((n) => round3(n) + "px");
+    return [inset && "inset", x, y, blur, property === "box-shadow" && nums[3] && spread, color].filter(Boolean).join(" ");
+  }
+
   // → {kind, ...range/unit info}
   function inferControl(value, property) {
     const v = value.trim();
+    // A lone var(--token) stays read-only; `token` lets the popup offer the token itself.
+    const tok = v.match(/^var\(\s*(--[\w-]+)\s*(?:,[^()]*)?\)$/);
+    if (tok) return { kind: "readonly", token: tok[1] };
+    if (/^(box|text)-shadow$/.test(property)) {
+      const s = parseShadow(v, property);
+      if (s) return { kind: "shadow", shadow: s };
+    }
     if (/^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$|(rgb|hsl)a?\()/i.test(v) ||
         (/color|fill|stroke/.test(property) && /^[a-z]+$/i.test(v) && namedHex(v))) return { kind: "color" };
     const parsed = LONGHAND_GROUPS.some((g) => g[0] === property) && parseShorthand4(v);
@@ -1736,14 +1871,21 @@
   // element's unique selector beats author rules without touching them.
   const ownSheets = new WeakSet();
   function createPreviewSheet() {
-    const tweaks = new Map(); // property → formatted value
+    const tweaks = new Map(); // key → {prop, value, sel, conds}
     let selector = null;
     let sheet = null; // CSSStyleSheet, or the <style> fallback
     let scope = document; // the document or shadow root the sheet joins
+    // Each tweak lands in its rule's @media/@supports wrappers, on the element's selector
+    // unless it names its own (a token's rule applies wherever that rule does).
     function flush() {
       if (!selector || !sheet) return;
-      const body = [...tweaks].map(([p, v]) => `${p}: ${v} !important;`).join(" ");
-      const css = body ? `${selector} { ${body} }` : "";
+      const groups = new Map();
+      for (const t of tweaks.values()) {
+        const sel = t.sel || selector, k = [...t.conds, sel].join("\n");
+        const g = groups.get(k) || groups.set(k, { sel, conds: t.conds, body: "" }).get(k);
+        g.body += ` ${t.prop}: ${t.value} !important;`;
+      }
+      const css = [...groups.values()].map((g) => g.conds.reduceRight((inner, c) => `${c} { ${inner} }`, `${g.sel} {${g.body} }`)).join("\n");
       if (sheet.replaceSync) sheet.replaceSync(css);
       else sheet.textContent = css;
     }
@@ -1763,8 +1905,8 @@
         }
         flush();
       },
-      set(prop, formatted) { tweaks.set(prop, formatted); flush(); },
-      clear(prop) { tweaks.delete(prop); flush(); },
+      set(key, prop, value, { sel, conds = [] } = {}) { tweaks.delete(key); tweaks.set(key, { prop, value, sel, conds }); flush(); },
+      clear(key) { tweaks.delete(key); flush(); },
       detach() {
         if (sheet && sheet.remove) sheet.remove();
         else if (sheet) scope.adoptedStyleSheets = scope.adoptedStyleSheets.filter((s) => s !== sheet);
@@ -1921,46 +2063,100 @@
     return setValue;
   }
 
+  // x, y, blur (and spread for box-shadow) in px, plus a color; emits the whole value.
+  function shadowControl(row, decl, onChange) {
+    const isText = decl.property === "text-shadow";
+    let { inset, nums, color } = decl.shadow;
+    nums = nums.slice();
+    const emit = () => onChange(formatShadow({ inset, nums, color }, decl.property));
+    const inputs = (isText ? ["x", "y", "blur"] : ["x", "y", "blur", "spread"]).map((name, i) => {
+      const inp = textInput("popup-edge-input", { inputmode: "decimal", "aria-label": decl.property + " " + name, title: name });
+      inp.value = String(nums[i]);
+      inp.addEventListener("change", () => {
+        const p = parseDimension(inp.value, "px");
+        if (p && p.n != null && (p.unit === "px" || !p.n)) { nums[i] = p.n; emit(); }
+        inp.value = String(nums[i]);
+      });
+      stepKeys(inp, () => 1, () => parseFloat(inp.value), (n) => { nums[i] = n; inp.value = String(n); emit(); });
+      return inp;
+    });
+    row.append(h("div", "popup-shadow", 0, ...inputs));
+    const setColor = colorControl(row, { property: decl.property, value: color }, (c) => { color = c; emit(); });
+    return (v) => {
+      const s = parseShadow(v, decl.property);
+      if (!s) return;
+      ({ inset, nums, color } = s);
+      inputs.forEach((inp, i) => { inp.value = String(nums[i]); });
+      setColor(color);
+    };
+  }
+
   function buildDeclarationRow(decl, onChange) {
     const { kind, value } = decl;
-    const row = h("div", kind === "edges" ? "popup-decl popup-decl-edges" : "popup-decl", 0,
+    const row = h("div", kind === "edges" ? "popup-decl popup-decl-edges" : kind === "shadow" ? "popup-decl popup-decl-shadow" : "popup-decl", 0,
       h("span", "popup-decl-label", 0, decl.property));
     if (kind === "readonly") {
       row.append(h("span", "popup-decl-readonly", { title: value }, value));
       return { row, setValue() {} };
     }
-    const control = kind === "edges" ? edgeControl : kind === "color" ? colorControl : lengthControl;
+    const control = { edges: edgeControl, color: colorControl, shadow: shadowControl }[kind] || lengthControl;
     return { row, setValue: control(row, decl, onChange) };
   }
 
-  function buildRuleBlock(entry, source, onTweak, onClear) {
+  // opts: {count, hist, tokenFor}. `hist` is the popup's undo stack; tokenFor(name) finds the
+  // rule declaring a var() token (or null). onTweak/onClear get `tok` for edits to a token.
+  function buildRuleBlock(entry, source, onTweak, onClear, opts = {}) {
+    const { hist = { stack: [] }, tokenFor } = opts;
     const block = h("div", "popup-rule", 0,
       h("div", "popup-rule-selector", { title: entry.selectorText }, entry.selectorText),
-      h("div", "popup-rule-source", 0, source));
+      h("div", "popup-rule-source", 0, source + (opts.count == null ? "" : ` · ${opts.count} on page`)));
     const undoBtn = h("button", "popup-rule-undo", { type: "button", hidden: "" }, "↩ undo tweaks");
+    const infos = [];
     const touch = (info, v) => {
+      // Cmd+Z restores a control's value from before its current run of edits.
+      if (!hist.skip && hist.stack[hist.stack.length - 1]?.info !== info) hist.stack.push({ info, prev: info.cur });
+      info.cur = v;
       // Back to the page's value: no tweak.
       if (v === info.decl.value) {
         info.row.classList.remove("touched");
         undoBtn.hidden = !block.querySelector(".touched");
-        return onClear(info.decl.property);
+        return onClear(info.decl.property, info.tok);
       }
       info.row.classList.add("touched");
       undoBtn.hidden = false;
-      onTweak(info.decl, v);
+      onTweak(info.decl, v, info.tok);
     };
-    const rows = new Map();
+    const addRow = (decl, tok) => {
+      const info = { decl, tok, cur: decl.value, ...buildDeclarationRow(decl, (v) => touch(info, v)) };
+      info.revert = (v) => { info.setValue(v); touch(info, v); };
+      infos.push(info);
+      return info;
+    };
     for (const decl of readDeclarations(entry)) {
-      const info = { decl, ...buildDeclarationRow(decl, (v) => touch(info, v)) };
-      rows.set(decl.property, info);
+      const info = addRow(decl);
       block.append(info.row);
+      const found = decl.token && tokenFor && tokenFor(decl.token);
+      if (found) {
+        const first = !opts.seen?.has(decl.token);
+        opts.seen?.add(decl.token);
+        // The var() chip stays; the token it reads follows as its own editable row.
+        info.row.querySelector(".popup-decl-readonly").append(" = " + found.value);
+        const tokDecl = { property: decl.token, value: found.value, ...inferControl(found.value, decl.token) };
+        if (first && tokDecl.kind !== "readonly") {
+          const tinfo = addRow(tokDecl, found);
+          tinfo.row.classList.add("popup-decl-token");
+          tinfo.row.title = `Edits ${decl.token} in ${found.selectorText} (${found.source}): every use on the page changes`;
+          block.append(tinfo.row);
+        }
+      }
     }
     undoBtn.addEventListener("click", () => {
-      for (const [prop, info] of rows) {
+      for (const info of infos) {
         if (info.row.classList.contains("touched")) {
           info.row.classList.remove("touched");
           info.setValue(info.decl.value);
-          onClear(prop);
+          info.cur = info.decl.value;
+          onClear(info.decl.property, info.tok);
         }
       }
       undoBtn.hidden = true;
@@ -1969,11 +2165,13 @@
 
     return {
       block,
-      hydrateTweak(property, after) {
-        const info = rows.get(property);
+      // A saved tweak lands on this block's own declaration, or on a token row it carries.
+      hydrateTweak(t) {
+        const own = t.selector === entry.selectorText && (t.source === source || !String(t.source).includes("@"));
+        const info = infos.find((i) => i.decl.property === t.property && (i.tok ? i.tok.selectorText === t.selector : own));
         if (!info || info.decl.kind === "readonly") return false;
-        info.setValue(after);
-        touch(info, after);
+        hist.skip = true;
+        try { info.setValue(t.after); touch(info, t.after); } finally { hist.skip = false; }
         return true;
       },
     };
@@ -2158,7 +2356,7 @@
   if (window.__AVIS_TEST__) {
     api._t = {
       rgbToHex, parseDimension, parseShorthand4, formatShorthand4, inferControl, isMinified,
-      getSelector, resolveTarget, viewRect, a11y, nearbyText, getReactInfo, discoverMatchedRules, ruleSourceLabel, readDeclarations, capture,
+      getSelector, resolveTarget, viewRect, a11y, nearbyText, getReactInfo, discoverMatchedRules, findTokenRule, countMatches, parseShadow, formatShadow, ruleSourceLabel, readDeclarations, capture,
       serializeConsoleArg, bridged,
     };
   }

@@ -95,11 +95,11 @@ test("@media conditions are only evaluated when a rule inside them matches", () 
     assert.equal(calls, 2);
   }));
 
-test("rule entries carry only rule and selectorText", () =>
+test("rule entries carry only rule, selectorText and conds", () =>
   withPage(`<div class="card" style="opacity: 0.5">x</div>`, ({ document, t }) => {
     addStyle(document, `.card { color: red }`);
     for (const entry of t.discoverMatchedRules(document.querySelector(".card")).rules) {
-      assert.deepEqual(Object.keys(entry).sort(), ["rule", "selectorText"]);
+      assert.deepEqual(Object.keys(entry).sort(), ["conds", "rule", "selectorText"]);
     }
   }));
 
